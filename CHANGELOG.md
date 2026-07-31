@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-07-31
+
+### Fixed / Improved — second dogfood round
+
+Exercise-driven follow-ups after cold bootstrap on a parqview-like repo:
+
+- **Hub fallback** for empty or *generic* prompts (`summarize architecture`,
+  `what is this project about`) so agents still get README + module map.
+- **README-family dedup** — pack either root `readme` or `from-readme`, not both
+  near-identical bodies.
+- **Skip ADR TEMPLATE** stubs in context packing.
+- **`note new` auto-syncs** by default (`--no-sync` to skip) so agent-written notes
+  are immediately queryable.
+- **`query` is note-first** by default (`--with-symbols` / `--all-types` to include code).
+- **Doctor** warns `adr_template_only` / `no_adrs` when decisions are missing.
+- Stopword list includes `summarize`; generic-topic detection (`is_generic_topic`).
+
+Regression tests cover NL `why egui not tauri`, generic overview fallback, and excerpt dedup.
+
 ## [0.3.0] - 2026-07-31
 
 ### Added

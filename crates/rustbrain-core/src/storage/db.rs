@@ -343,6 +343,19 @@ impl Database {
         Ok(results)
     }
 
+    /// List node ids with the given `node_type` string (e.g. `"adr"`).
+    pub fn list_node_ids_by_type(&self, node_type: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM nodes WHERE node_type = ?1 ORDER BY id")?;
+        let rows = stmt.query_map(params![node_type], |row| row.get(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Fetch a single node by id, if present.
     pub fn get_node(&self, id: &str) -> Result<Option<Node>> {
         let mut stmt = self.conn.prepare(

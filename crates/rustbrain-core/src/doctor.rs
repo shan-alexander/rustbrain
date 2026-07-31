@@ -216,6 +216,28 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
         });
     }
 
+    // ADR quality: TEMPLATE alone is not a real decision record.
+    let adr_ids = db.list_node_ids_by_type(NodeType::Adr.as_str())?;
+    let real_adrs = adr_ids
+        .iter()
+        .filter(|id| !id.to_lowercase().contains("template"))
+        .count();
+    if !adr_ids.is_empty() && real_adrs == 0 {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "adr_template_only".into(),
+            message: "only ADR template present — write real decisions under docs/adr/ (or `note new --type adr`)"
+                .into(),
+        });
+    } else if adr_ids.is_empty() && note_count > 0 {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "no_adrs".into(),
+            message: "no ADR notes yet — capture decisions with `rustbrain note new --type adr --title … --note …`"
+                .into(),
+        });
+    }
+
     let healthy = !findings
         .iter()
         .any(|f| f.severity == DoctorSeverity::Error);

@@ -11,7 +11,7 @@
 //! agent prompt packing, not for billing-grade tokenizer parity.
 
 use crate::error::Result;
-use crate::fts::{prepare_search_query, tokenize_query};
+use crate::fts::{is_generic_topic, prepare_search_query, tokenize_query};
 use crate::query::{QueryOptions, RankedHit};
 use crate::storage::Database;
 use crate::types::{ContextBundle, ContextNode, ContextRole, Node, NodeType};
@@ -151,7 +151,12 @@ pub fn assemble_context(
         .unwrap_or_else(|_| tokenize_query(prompt));
 
     let qopts = opts.seed_query_opts();
-    let seeds = db.search_ranked(prompt, &qopts)?;
+    let mut seeds = db.search_ranked(prompt, &qopts)?;
+    let generic = is_generic_topic(&query_tokens);
+    // Soft / empty retrieval → inject README hub + harvested goals (cold-start agents).
+    if seeds.is_empty() || generic {
+        inject_hub_seeds(db, &mut seeds, opts)?;
+    }
 
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut seed_ids: HashSet<String> = HashSet::new();
@@ -160,9 +165,20 @@ pub fn assemble_context(
         if !opts.allows_pack(&hit.node.node_type, ContextRole::Seed) {
             continue;
         }
+        // Skip pure ADR templates — they burn budget without knowledge.
+        if is_template_stub(&hit.node) {
+            continue;
+        }
         seed_ids.insert(hit.node.id.clone());
         // Slight rank-position prior
-        let score = hit.score * (1.0 / (1.0 + i as f32 * 0.05));
+        let mut score = hit.score * (1.0 / (1.0 + i as f32 * 0.05));
+        // Prefer hand-written / ADR over generated harvest when scores are close.
+        if is_generated_path(&hit.node) {
+            score *= 0.85;
+        }
+        if hit.node.node_type == NodeType::Adr {
+            score *= 1.08;
+        }
         let excerpt = if opts.include_excerpts {
             load_excerpt(db, &hit.node, MAX_EXCERPT_CHARS)
         } else {
@@ -175,6 +191,33 @@ pub fn assemble_context(
             hop: 0,
             excerpt,
         });
+    }
+
+    // If filters wiped everything (e.g. only template matched), hub-inject again.
+    if candidates.is_empty() {
+        let mut hub_hits = Vec::new();
+        inject_hub_seeds(db, &mut hub_hits, opts)?;
+        for hit in hub_hits.into_iter().take(4) {
+            if !opts.allows_pack(&hit.node.node_type, ContextRole::Seed) {
+                continue;
+            }
+            if seed_ids.contains(&hit.node.id) {
+                continue;
+            }
+            seed_ids.insert(hit.node.id.clone());
+            let excerpt = if opts.include_excerpts {
+                load_excerpt(db, &hit.node, MAX_EXCERPT_CHARS)
+            } else {
+                None
+            };
+            candidates.push(Candidate {
+                node: hit.node,
+                score: hit.score,
+                role: ContextRole::Seed,
+                hop: 0,
+                excerpt,
+            });
+        }
     }
 
     let mut graph_nodes = 0usize;
@@ -288,6 +331,7 @@ pub fn assemble_context(
     let mut used_chars = estimate_overhead(prompt);
     let mut seen = HashSet::new();
     let mut symbol_neighbors = 0usize;
+    let mut packed_excerpts: Vec<String> = Vec::new();
 
     for cand in candidates {
         if packed.len() >= opts.max_nodes {
@@ -301,6 +345,21 @@ pub fn assemble_context(
             && symbol_neighbors >= MAX_PACKED_SYMBOL_NEIGHBORS
         {
             continue;
+        }
+        // Prefer a single README-family hub (root readme XOR from-readme harvest).
+        if is_readme_family(&cand.node.id)
+            && packed.iter().any(|n| is_readme_family(&n.id))
+        {
+            continue;
+        }
+        // Drop near-duplicate body text (harvested clones of the same prose).
+        if let Some(ex) = &cand.excerpt {
+            if packed_excerpts
+                .iter()
+                .any(|prev| excerpt_jaccard(prev, ex) > 0.55)
+            {
+                continue;
+            }
         }
         let ctx_node = to_context_node(&cand);
         let cost = estimate_node_chars(&ctx_node);
@@ -319,6 +378,9 @@ pub fn assemble_context(
         used_chars += cost;
         if cand.role == ContextRole::Neighbor && cand.node.node_type == NodeType::Symbol {
             symbol_neighbors += 1;
+        }
+        if let Some(ex) = &ctx_node.excerpt {
+            packed_excerpts.push(ex.clone());
         }
         packed.push(ctx_node);
     }
@@ -385,6 +447,88 @@ fn symbol_neighbor_quality(node: &Node, query_tokens: &[String]) -> SymbolQualit
     }
 
     SymbolQuality::Keep { boost: 1.0 }
+}
+
+/// Soft-inject README hub + common bootstrap goals when FTS is empty or generic.
+fn inject_hub_seeds(
+    db: &Database,
+    seeds: &mut Vec<RankedHit>,
+    opts: &ContextOptions,
+) -> Result<()> {
+    let existing: HashSet<String> = seeds.iter().map(|h| h.node.id.clone()).collect();
+    let hubs = [
+        ("readme", 4.5_f32),
+        ("docs/goals/from-readme", 3.8),
+        ("docs/implementation/module-map.generated", 2.2),
+        ("docs/goals/readme", 1.5),
+    ];
+    for (id, score) in hubs {
+        if existing.contains(id) {
+            continue;
+        }
+        if let Some(node) = db.get_node(id)? {
+            if !opts.allows_pack(&node.node_type, ContextRole::Seed) {
+                continue;
+            }
+            if is_template_stub(&node) {
+                continue;
+            }
+            seeds.push(RankedHit {
+                node,
+                score,
+                reasons: vec!["hub-fallback".into()],
+            });
+        }
+    }
+    // Keep highest first for take(max_seeds).
+    seeds.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(())
+}
+
+fn is_template_stub(node: &Node) -> bool {
+    let id = node.id.to_lowercase();
+    let path = node.file_path.as_deref().unwrap_or("").to_lowercase();
+    let title = node.title.to_lowercase();
+    id.contains("template")
+        || path.ends_with("template.md")
+        || title.contains("template")
+        || title == "adr template"
+}
+
+fn is_generated_path(node: &Node) -> bool {
+    let path = node.file_path.as_deref().unwrap_or("");
+    path.contains("from-readme")
+        || path.contains(".generated.")
+        || path.ends_with("module-map.generated.md")
+}
+
+fn is_readme_family(id: &str) -> bool {
+    id == "readme" || id.contains("from-readme")
+}
+
+fn excerpt_jaccard(a: &str, b: &str) -> f32 {
+    let ta: HashSet<&str> = a
+        .split_whitespace()
+        .filter(|w| w.len() > 2)
+        .collect();
+    let tb: HashSet<&str> = b
+        .split_whitespace()
+        .filter(|w| w.len() > 2)
+        .collect();
+    if ta.is_empty() || tb.is_empty() {
+        return 0.0;
+    }
+    let inter = ta.intersection(&tb).count() as f32;
+    let uni = ta.union(&tb).count() as f32;
+    if uni == 0.0 {
+        0.0
+    } else {
+        inter / uni
+    }
 }
 
 fn load_excerpt(db: &Database, node: &Node, max_chars: usize) -> Option<String> {
@@ -577,6 +721,88 @@ mod tests {
                 .iter()
                 .map(|n| (&n.id, &n.excerpt))
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn generic_overview_prompt_falls_back_to_hub() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("README.md"),
+            "# demotool\n\nNative egui + DuckDB CLI. Avoids Tauri.\n",
+        )
+        .unwrap();
+        let mut brain = Brain::create(dir.path()).unwrap();
+        brain.sync().unwrap();
+
+        for prompt in [
+            "summarize architecture",
+            "what is this project about",
+            "give an overview",
+        ] {
+            let ctx = assemble_context(
+                brain.database(),
+                brain.brain_dir(),
+                prompt,
+                &ContextOptions::default(),
+            )
+            .unwrap();
+            assert!(
+                !ctx.nodes.is_empty(),
+                "expected hub fallback for `{prompt}`; packed=0"
+            );
+            let has_hub = ctx.nodes.iter().any(|n| {
+                n.id == "readme"
+                    || n.id.contains("from-readme")
+                    || n.excerpt
+                        .as_ref()
+                        .map(|e| e.to_lowercase().contains("egui") || e.to_lowercase().contains("duckdb"))
+                        .unwrap_or(false)
+            });
+            assert!(
+                has_hub,
+                "expected README hub content for `{prompt}`; nodes={:?}",
+                ctx.nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn dedups_near_identical_excerpts() {
+        let dir = tempdir().unwrap();
+        let body = "Lightweight egui explorer with DuckDB CLI. Avoids Tauri completely.\n".repeat(3);
+        std::fs::write(
+            dir.path().join("README.md"),
+            format!("# demotool\n\n{body}"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("docs/goals")).unwrap();
+        std::fs::write(
+            dir.path().join("docs/goals/from-readme.md"),
+            format!(
+                "---\nnode_type: goal\n---\n# Goals harvested from README\n\n{body}"
+            ),
+        )
+        .unwrap();
+        let mut brain = Brain::create(dir.path()).unwrap();
+        brain.sync().unwrap();
+        let ctx = assemble_context(
+            brain.database(),
+            brain.brain_dir(),
+            "egui duckdb tauri",
+            &ContextOptions {
+                max_tokens: 900,
+                hop_depth: 0,
+                ..ContextOptions::default()
+            },
+        )
+        .unwrap();
+        // Should not pack both near-identical README + harvest when budget is modest.
+        let ids: Vec<_> = ctx.nodes.iter().map(|n| n.id.as_str()).collect();
+        let both = ids.contains(&"readme") && ids.iter().any(|i| i.contains("from-readme"));
+        assert!(
+            !both || ctx.nodes.len() == 1,
+            "expected dedup of near-identical hubs; packed={ids:?}"
         );
     }
 }

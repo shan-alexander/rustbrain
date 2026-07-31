@@ -254,8 +254,8 @@ impl ContextBundle {
             out.push('\n');
         }
         if self.nodes.is_empty() {
-            out.push_str("_No nodes packed._ Try a shorter topic (key nouns only), or:\n");
-            out.push_str("```\nrustbrain query \"topic\" --no-symbols --scores\nrustbrain context -p \"topic\" --no-symbols -F markdown\n```\n\n");
+            out.push_str("_No nodes packed._ Try key nouns from the README, or:\n");
+            out.push_str("```\nrustbrain query \"topic\" --scores\nrustbrain context \"topic\" -F markdown\nrustbrain setup --yes   # if this is a fresh repo\n```\n\n");
         }
         if !self.neighbor_ids.is_empty() {
             out.push_str("### Graph neighbor ids\n\n");

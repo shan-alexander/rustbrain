@@ -31,7 +31,7 @@ cargo publish -p rustbrain
 ## GitHub
 
 ```bash
-git tag -a v0.3.0 -m "v0.3.0"
+git tag -a v0.3.1 -m "v0.3.1"
 git push origin main --tags
 ```
 

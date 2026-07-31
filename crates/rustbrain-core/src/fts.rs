@@ -17,11 +17,11 @@ const STOPWORDS: &[&str] = &[
     "its", "just", "look", "looking", "make", "may", "me", "might", "more", "most",
     "must", "my", "need", "needs", "no", "nor", "not", "of", "off", "on", "once",
     "only", "or", "other", "our", "out", "over", "own", "per", "please", "same",
-    "shall", "should", "show", "so", "some", "such", "tell", "than", "that", "the",
-    "their", "them", "then", "there", "these", "they", "this", "those", "through",
-    "to", "too", "under", "up", "use", "used", "using", "versus", "very", "via", "vs",
-    "want", "wants", "was", "we", "were", "what", "when", "where", "which", "who",
-    "whom", "whose", "why", "will", "with", "would", "you", "your",
+    "shall", "should", "show", "so", "some", "such", "summarize", "tell", "than",
+    "that", "the", "their", "them", "then", "there", "these", "they", "this", "those",
+    "through", "to", "too", "under", "up", "use", "used", "using", "versus", "very",
+    "via", "vs", "want", "wants", "was", "we", "were", "what", "when", "where",
+    "which", "who", "whom", "whose", "why", "will", "with", "would", "you", "your",
 ];
 
 /// Prepared FTS query plus the significant tokens used for ranking boosts.
@@ -84,6 +84,22 @@ pub fn significant_tokens(tokens: &[String]) -> Vec<String> {
 fn quote_fts_token(t: &str) -> String {
     let q = t.replace('"', "\"\"");
     format!("\"{q}\"")
+}
+
+/// Tokens that are real English words but too generic to retrieve alone.
+const GENERIC_TOPIC_TOKENS: &[&str] = &[
+    "architecture", "code", "codebase", "design", "overview", "project", "repo",
+    "repository", "software", "stack", "structure", "system", "tool", "tools",
+];
+
+/// True when every token is a generic overview word (or the list is empty).
+pub fn is_generic_topic(tokens: &[String]) -> bool {
+    if tokens.is_empty() {
+        return true;
+    }
+    tokens.iter().all(|t| {
+        GENERIC_TOPIC_TOKENS.binary_search(&t.as_str()).is_ok()
+    })
 }
 
 /// Build a safe FTS5 MATCH string and ranking tokens from raw user input.
@@ -211,5 +227,21 @@ mod tests {
         assert!(t.contains(&"egui".to_string()));
         assert!(t.contains(&"tauri".to_string()));
         assert!(t.contains(&"duckdb".to_string()));
+    }
+
+    #[test]
+    fn generic_topic_detection() {
+        assert!(is_generic_topic(&["architecture".into(), "overview".into()]));
+        assert!(!is_generic_topic(&["egui".into(), "architecture".into()]));
+        let p = prepare_search_query("summarize architecture").unwrap();
+        // "summarize" is a stopword → only architecture remains → generic
+        assert!(is_generic_topic(&p.tokens), "tokens={:?}", p.tokens);
+    }
+
+    #[test]
+    fn generic_tokens_sorted() {
+        let mut s = GENERIC_TOPIC_TOKENS.to_vec();
+        s.sort_unstable();
+        assert_eq!(GENERIC_TOPIC_TOKENS, s.as_slice());
     }
 }

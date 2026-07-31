@@ -131,13 +131,16 @@ enum Commands {
         /// Show ranking scores
         #[arg(long, default_value_t = false)]
         scores: bool,
-        /// Exclude symbol nodes (typical for human search)
+        /// Include code symbols (default: notes only — human/agent friendly)
+        #[arg(long, default_value_t = false)]
+        with_symbols: bool,
+        /// Exclude symbol nodes (default behavior; kept for scripts)
         #[arg(long, default_value_t = false)]
         no_symbols: bool,
         /// Only these node types (comma-separated: goal,adr,concept,…)
         #[arg(long, value_name = "TYPES")]
         r#type: Option<String>,
-        /// Include all types including symbols (overrides --no-symbols)
+        /// Include all types including symbols
         #[arg(long, default_value_t = false)]
         all_types: bool,
         /// Workspace root containing `.brain/`
@@ -240,8 +243,11 @@ enum NoteCmd {
         /// Workspace root
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
-        /// Sync immediately after write
+        /// Skip indexing after write (default is to sync so notes are searchable immediately)
         #[arg(long, default_value_t = false)]
+        no_sync: bool,
+        /// Sync after write (default true; use `--no-sync` to skip)
+        #[arg(long, default_value_t = true, hide = true)]
         sync: bool,
     },
 }
@@ -408,8 +414,10 @@ fn run() -> Result<ExitCode> {
                 dir,
                 force,
                 workspace,
+                no_sync,
                 sync,
             } => {
+                let do_sync = sync && !no_sync;
                 let node_type = NodeType::parse(&r#type).ok_or_else(|| {
                     anyhow::anyhow!(
                         "unknown type '{type}'. use: goal, adr, alternative, concept, reference, edge_case"
@@ -448,13 +456,15 @@ fn run() -> Result<ExitCode> {
                     created.rel_path.display(),
                     created.node_id
                 );
-                if sync {
+                if do_sync {
                     let mut brain = Brain::open_or_create(&workspace)?;
                     let stats = brain.sync()?;
                     println!(
                         "synced: upserted={} pending={} file_errors={}",
                         stats.nodes_upserted, stats.edges_pending, stats.file_errors
                     );
+                } else {
+                    println!("hint: not indexed yet — run `rustbrain sync` (or omit `--no-sync`)");
                 }
                 Ok(ExitCode::SUCCESS)
             }
@@ -517,14 +527,18 @@ fn run() -> Result<ExitCode> {
             limit,
             scores,
             no_symbols,
+            with_symbols,
             r#type,
             all_types,
             workspace,
         } => {
-            let mut opts = if no_symbols && !all_types {
-                QueryOptions::human()
-            } else {
+            // Note-first by default (0.3.1+). Symbols only with --with-symbols / --all-types.
+            let include_symbols = with_symbols || all_types;
+            let _ = no_symbols; // legacy no-op when already note-first
+            let mut opts = if include_symbols {
                 QueryOptions::default()
+            } else {
+                QueryOptions::human()
             };
             opts.limit = limit;
             if all_types {
