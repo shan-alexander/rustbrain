@@ -33,6 +33,12 @@ pub struct QueryOptions {
     ///
     /// Defaults slightly prefer goals/ADRs/edge cases over raw symbols.
     pub type_boosts: Vec<(NodeType, f32)>,
+    /// If non-empty, only include these node types.
+    pub include_types: Vec<NodeType>,
+    /// Exclude these node types after ranking (applied after include filter).
+    pub exclude_types: Vec<NodeType>,
+    /// Convenience: exclude [`NodeType::Symbol`] (typical for human CLI search).
+    pub no_symbols: bool,
 }
 
 impl Default for QueryOptions {
@@ -43,9 +49,36 @@ impl Default for QueryOptions {
                 (NodeType::Goal, 1.15),
                 (NodeType::Adr, 1.1),
                 (NodeType::EdgeCase, 1.1),
+                (NodeType::Concept, 1.05),
                 (NodeType::Symbol, 0.95),
             ],
+            include_types: Vec::new(),
+            exclude_types: Vec::new(),
+            no_symbols: false,
         }
+    }
+}
+
+impl QueryOptions {
+    /// Human-oriented defaults: exclude pure code symbols unless asked otherwise.
+    pub fn human() -> Self {
+        Self {
+            no_symbols: true,
+            ..Self::default()
+        }
+    }
+
+    fn allows(&self, ty: &NodeType) -> bool {
+        if self.no_symbols && *ty == NodeType::Symbol {
+            return false;
+        }
+        if !self.include_types.is_empty() && !self.include_types.contains(ty) {
+            return false;
+        }
+        if self.exclude_types.contains(ty) {
+            return false;
+        }
+        true
     }
 }
 
@@ -111,10 +144,18 @@ impl Database {
         let mut hits: Vec<RankedHit> = Vec::new();
         for r in rows {
             let (node, bm25) = r?;
+            if !opts.allows(&node.node_type) {
+                continue;
+            }
             // bm25() in SQLite FTS5: more relevant → more negative. Invert.
             let fts_score = (-bm25).max(0.01);
             let mut score = fts_score;
             let mut reasons = vec![format!("fts:{fts_score:.3}")];
+            // Hub boost for root README node.
+            if node.id == "readme" || node.file_path.as_deref() == Some("README.md") {
+                score *= 1.2;
+                reasons.push("hub:readme".into());
+            }
 
             // Title token hits
             let title_l = node.title.to_lowercase();
@@ -170,7 +211,9 @@ impl Database {
         }
 
         // Also pull pure tag/alias matches that FTS may have missed (short queries).
-        self.augment_with_tag_alias_hits(&tokens, &mut hits)?;
+        self.augment_with_tag_alias_hits(&tokens, &mut hits, opts)?;
+
+        hits.retain(|h| opts.allows(&h.node.node_type));
 
         hits.sort_by(|a, b| {
             b.score
@@ -212,6 +255,7 @@ impl Database {
         &self,
         tokens: &[String],
         hits: &mut Vec<RankedHit>,
+        opts: &QueryOptions,
     ) -> Result<()> {
         let existing: std::collections::HashSet<String> =
             hits.iter().map(|h| h.node.id.clone()).collect();
@@ -244,7 +288,7 @@ impl Database {
             })?;
             for r in rows {
                 let node = r?;
-                if existing.contains(&node.id) {
+                if existing.contains(&node.id) || !opts.allows(&node.node_type) {
                     continue;
                 }
                 hits.push(RankedHit {
@@ -281,7 +325,8 @@ impl Database {
             })?;
             for r in rows {
                 let node = r?;
-                if hits.iter().any(|h| h.node.id == node.id) {
+                if hits.iter().any(|h| h.node.id == node.id) || !opts.allows(&node.node_type)
+                {
                     continue;
                 }
                 hits.push(RankedHit {
@@ -293,6 +338,54 @@ impl Database {
         }
         Ok(())
     }
+
+    /// List unresolved WikiLink / symbol targets.
+    pub fn list_pending_links(&self) -> Result<Vec<PendingLink>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT source_id, raw_target, relation_type, created_at FROM pending_links ORDER BY source_id, raw_target",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(PendingLink {
+                source_id: row.get(0)?,
+                raw_target: row.get(1)?,
+                relation_type: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Count nodes grouped by `node_type`.
+    pub fn count_nodes_by_type(&self) -> Result<Vec<(String, usize)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT node_type, COUNT(*) FROM nodes GROUP BY node_type ORDER BY COUNT(*) DESC")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+}
+
+/// Unresolved link kept for later resolution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingLink {
+    /// Source node id that referenced the target.
+    pub source_id: String,
+    /// Raw WikiLink / `symbol:…` target text.
+    pub raw_target: String,
+    /// Intended relation type (`relates_to`, `anchors`, …).
+    pub relation_type: String,
+    /// When the pending link was recorded (unix seconds).
+    pub created_at: i64,
 }
 
 #[cfg(test)]

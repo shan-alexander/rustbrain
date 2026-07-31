@@ -1,61 +1,69 @@
 # rustbrain (CLI)
 
-Command-line interface for the [rustbrain](https://github.com/shan-alexander/rustbrain) second-brain engine.
+Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbrain).
 
-Package name on crates.io: **`rustbrain`**  
-Binary name: **`rustbrain`**
+**crates.io:** `rustbrain` · **binary:** `rustbrain` · **library:** use [`rustbrain-core`](https://crates.io/crates/rustbrain-core)
 
 ## Install
 
 ```bash
 cargo install rustbrain --locked
-
-# From a local checkout:
-cargo install --path crates/rustbrain-cli --locked
+# pin: cargo install rustbrain --version 0.2.0 --locked
 ```
 
 Requires a C toolchain (bundled SQLite + tree-sitter).
 
-## Usage
+## Typical workflow
 
 ```bash
 cd your-project
 rustbrain init
+rustbrain bootstrap --yes --write   # mature repos / agents
 rustbrain sync
-rustbrain query "your topic" --scores
-rustbrain context -p "explain the auth flow" -F markdown --hops 1
-rustbrain export --out ./brain.brainbundle
-rustbrain watch --debounce-ms 300
+rustbrain doctor
+
+rustbrain note new --type concept --title "Topic" --note "Body for agents." --sync
+rustbrain query "topic" --no-symbols --scores
+rustbrain context -p "explain topic" -F markdown --hops 1
+rustbrain links
 ```
 
-### Commands
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| `init [path]` | Create `.brain/` and empty SQLite DB |
-| `sync [path]` | Index notes + Rust AST; bake CSR mmap |
-| `query <q>` | Ranked search (`--scores`, `-n`, `--all-workspaces`, `-w`) |
-| `context` | Agent context (`-p` prompt, `-m` tokens, `--hops`, `-F xml\|md`) |
-| `watch` | Debounced live re-index (`--debounce-ms`) |
-| `export` | Write `.brainbundle` (`--out`, `--decouple-ast`) |
-| `import` | Load a `.brainbundle` (`--input`) |
+| `init` | Create `.brain/db.sqlite` |
+| `bootstrap` | Scaffold docs, ignore file, README harvest, AST map (`--yes`, `--write`, `--force`) |
+| `sync` | Index notes + Rust AST; bake CSR mmap |
+| `doctor` | Health + pending links (`--json`, `--strict`) |
+| `note new` | Create note (`--type`, `--title`, `--note`, `--sync`) |
+| `links` | List pending unresolved links |
+| `query` | Ranked search (`--no-symbols`, `--type`, `--scores`, `--all-workspaces`) |
+| `context` | Agent context (`-p`, `-m`, `--hops`, `--no-symbols`, `--no-hop-symbols`, `-F`) |
+| `watch` | Debounced live re-index |
+| `export` / `import` | `.brainbundle` portable graph |
 
-Run `rustbrain <command> --help` for full flags.
+Full flag reference and nuances: **[docs/CLI.md](../../docs/CLI.md)** in the repo.
 
-## Library
+### Agent tip: `note new`
 
-This package is **CLI-only**. For embedding rustbrain in your own tools, depend on
-**`rustbrain-core`** (the only other published crate):
-
-```toml
-[dependencies]
-rustbrain-core = "0.1"
+```bash
+rustbrain note new \
+  --type adr \
+  --title "Prefer path deps in workspace" \
+  --note "Keeps publish graph simple; only core + CLI on crates.io." \
+  --tags "packaging" \
+  --sync
 ```
+
+### Bootstrap tip: interactive ignore
+
+On a TTY without `--yes`, bootstrap asks whether to create `.rustbrainignore`, import `.gitignore`, and add recommended extras (`data/`, `*.parquet`, `.env`, …).
 
 ## Exit codes
 
 - `0` — success  
-- `1` — error (message on stderr)
+- `1` — error, or `doctor --strict` with pending/unhealthy state  
 
 ## License
 

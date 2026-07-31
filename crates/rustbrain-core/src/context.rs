@@ -32,6 +32,15 @@ pub struct ContextOptions {
     pub max_nodes: usize,
     /// Multiplicative decay applied per hop for neighbor scores.
     pub hop_decay: f32,
+    /// Exclude pure code symbols from seeds and packed neighbors.
+    pub no_symbols: bool,
+    /// Only include these node types when non-empty.
+    pub include_types: Vec<crate::types::NodeType>,
+    /// Always exclude these node types.
+    pub exclude_types: Vec<crate::types::NodeType>,
+    /// When true, allow graph hops *to* symbols even if `no_symbols` filters seeds.
+    /// Default true so ADR → `symbol:foo` remains useful for agents.
+    pub hop_to_symbols: bool,
 }
 
 impl Default for ContextOptions {
@@ -42,7 +51,45 @@ impl Default for ContextOptions {
             max_seeds: 8,
             max_nodes: 24,
             hop_decay: 0.65,
+            no_symbols: false,
+            include_types: Vec::new(),
+            exclude_types: Vec::new(),
+            hop_to_symbols: true,
         }
+    }
+}
+
+impl ContextOptions {
+    fn seed_query_opts(&self) -> QueryOptions {
+        QueryOptions {
+            limit: self.max_seeds.saturating_mul(2).max(8),
+            no_symbols: self.no_symbols,
+            include_types: self.include_types.clone(),
+            exclude_types: self.exclude_types.clone(),
+            ..QueryOptions::default()
+        }
+    }
+
+    fn allows_pack(&self, ty: &crate::types::NodeType, role: ContextRole) -> bool {
+        use crate::types::NodeType;
+        if !self.include_types.is_empty() && !self.include_types.contains(ty) {
+            // Allow symbol neighbors when hop_to_symbols and role is Neighbor
+            if !(self.hop_to_symbols && role == ContextRole::Neighbor && *ty == NodeType::Symbol) {
+                return false;
+            }
+        }
+        if self.exclude_types.contains(ty) {
+            return false;
+        }
+        if *ty == NodeType::Symbol {
+            if role == ContextRole::Seed && self.no_symbols {
+                return false;
+            }
+            if role == ContextRole::Neighbor && self.no_symbols && !self.hop_to_symbols {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -73,16 +120,16 @@ pub fn assemble_context(
     let start = Instant::now();
     let char_budget = opts.max_tokens.saturating_mul(4).max(256);
 
-    let qopts = QueryOptions {
-        limit: opts.max_seeds * 2,
-        ..QueryOptions::default()
-    };
+    let qopts = opts.seed_query_opts();
     let seeds = db.search_ranked(prompt, &qopts)?;
 
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut seed_ids: HashSet<String> = HashSet::new();
 
     for (i, hit) in seeds.into_iter().take(opts.max_seeds).enumerate() {
+        if !opts.allows_pack(&hit.node.node_type, ContextRole::Seed) {
+            continue;
+        }
         seed_ids.insert(hit.node.id.clone());
         // Slight rank-position prior
         let score = hit.score * (1.0 / (1.0 + i as f32 * 0.05));
@@ -149,6 +196,9 @@ pub fn assemble_context(
                 for (id, (score, hop)) in neigh_sorted {
                     neighbor_ids.push(id.clone());
                     if let Some(node) = db.get_node(&id)? {
+                        if !opts.allows_pack(&node.node_type, ContextRole::Neighbor) {
+                            continue;
+                        }
                         candidates.push(Candidate {
                             node,
                             score,
@@ -294,6 +344,7 @@ mod tests {
             max_seeds: 4,
             max_nodes: 12,
             hop_decay: 0.7,
+            ..ContextOptions::default()
         };
         let ctx = assemble_context(brain.database(), brain.brain_dir(), "alphaunique", &opts)
             .unwrap();
@@ -332,6 +383,7 @@ mod tests {
             max_seeds: 8,
             max_nodes: 20,
             hop_decay: 0.5,
+            ..ContextOptions::default()
         };
         let ctx =
             assemble_context(brain.database(), brain.brain_dir(), "topic", &opts).unwrap();

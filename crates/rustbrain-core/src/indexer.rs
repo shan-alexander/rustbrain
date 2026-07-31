@@ -11,6 +11,7 @@
 
 use crate::error::{BrainError, Result};
 use crate::id::{content_hash, node_id_from_rel_path, rel_path_from_workspace, resolve_link_target};
+use crate::ignore::IgnoreSet;
 use crate::storage::Database;
 use crate::types::{Edge, Node, NodeType, SyncStats};
 use chrono::Utc;
@@ -20,14 +21,26 @@ use std::path::{Path, PathBuf};
 pub struct WorkspaceIndexer {
     db: Database,
     workspace: PathBuf,
+    ignore: IgnoreSet,
 }
 
 impl WorkspaceIndexer {
     /// Create an indexer for `workspace` writing into `db`.
+    ///
+    /// Loads `.rustbrainignore` (if present) plus built-in skips. When the env
+    /// var `RUSTBRAIN_IMPORT_GITIGNORE=1` is set, also merges root `.gitignore`.
     pub fn new(db: Database, workspace: impl Into<PathBuf>) -> Self {
+        let workspace = workspace.into();
+        let import_gi = std::env::var_os("RUSTBRAIN_IMPORT_GITIGNORE")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        // Also auto-import gitignore when .rustbrainignore asks for it.
+        let import_gi = import_gi || rustbrainignore_requests_gitignore(&workspace);
+        let ignore = IgnoreSet::load(&workspace, import_gi).unwrap_or_default();
         Self {
             db,
-            workspace: workspace.into(),
+            workspace,
+            ignore,
         }
     }
 
@@ -103,8 +116,17 @@ impl WorkspaceIndexer {
         let content = String::from_utf8_lossy(&raw_bytes);
 
         let rel = rel_path_from_workspace(&self.workspace, file_path);
-        let node_id = node_id_from_rel_path(&rel);
         let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if self.ignore.is_ignored(&rel_str, false) {
+            return Ok(());
+        }
+
+        let is_readme_hub = is_root_readme(&rel);
+        let node_id = if is_readme_hub {
+            "readme".to_string()
+        } else {
+            node_id_from_rel_path(&rel)
+        };
 
         if let Some(existing) = self.db.get_content_hash(&node_id)? {
             if existing == hash {
@@ -130,15 +152,24 @@ impl WorkspaceIndexer {
         let node_type = {
             #[cfg(feature = "obsidian")]
             {
-                frontmatter
+                let parsed = frontmatter
                     .as_ref()
                     .and_then(|fm| fm.node_type.as_deref())
-                    .and_then(NodeType::parse)
-                    .unwrap_or(NodeType::Concept)
+                    .and_then(NodeType::parse);
+                if is_readme_hub {
+                    // Root README is the project hub; default to Goal unless author overrides.
+                    parsed.unwrap_or(NodeType::Goal)
+                } else {
+                    parsed.unwrap_or(NodeType::Concept)
+                }
             }
             #[cfg(not(feature = "obsidian"))]
             {
-                NodeType::Concept
+                if is_readme_hub {
+                    NodeType::Goal
+                } else {
+                    NodeType::Concept
+                }
             }
         };
 
@@ -229,6 +260,14 @@ impl WorkspaceIndexer {
             extra_aliases.push(stem.to_string());
         }
         extra_aliases.push(title.clone());
+        if is_readme_hub {
+            extra_aliases.push("readme".into());
+            extra_aliases.push("hub".into());
+            extra_aliases.push("home".into());
+            if let Some(name) = self.workspace.file_name().and_then(|n| n.to_str()) {
+                extra_aliases.push(name.to_string());
+            }
+        }
 
         self.db.with_transaction(|conn| {
             self.db.insert_node_on(conn, &node)?;
@@ -352,9 +391,14 @@ impl WorkspaceIndexer {
 
             if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if should_skip_dir(name) {
+                    if self.ignore.skip_dir_name(name) {
                         continue;
                     }
+                }
+                let rel = rel_path_from_workspace(&self.workspace, &path);
+                let rel_str = rel.to_string_lossy().replace('\\', "/");
+                if self.ignore.is_ignored(&rel_str, true) {
+                    continue;
                 }
                 self.walk_and_index(
                     &path,
@@ -363,6 +407,11 @@ impl WorkspaceIndexer {
                     ast_parser,
                 )?;
             } else {
+                let rel = rel_path_from_workspace(&self.workspace, &path);
+                let rel_str = rel.to_string_lossy().replace('\\', "/");
+                if self.ignore.is_ignored(&rel_str, false) {
+                    continue;
+                }
                 let ext = path.extension().and_then(|e| e.to_str());
                 let result = match ext {
                     Some("md") => self.index_markdown_file(&path, stats),
@@ -394,6 +443,9 @@ impl WorkspaceIndexer {
     ) -> Result<()> {
         let rel = rel_path_from_workspace(&self.workspace, path);
         let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if self.ignore.is_ignored(&rel_str, false) {
+            return Ok(());
+        }
         let crate_name = infer_crate_name(&self.workspace, path);
         let source = std::fs::read_to_string(path)?;
         let anchors = ast_parser
@@ -469,19 +521,31 @@ impl WorkspaceIndexer {
     }
 }
 
-fn should_skip_dir(name: &str) -> bool {
-    matches!(
-        name,
-        "target"
-            | "node_modules"
-            | "vendor"
-            | ".git"
-            | ".brain"
-            | "dist"
-            | "build"
-            | ".svn"
-            | ".hg"
-    ) || name.starts_with('.')
+fn is_root_readme(rel: &Path) -> bool {
+    let comps: Vec<_> = rel
+        .components()
+        .filter(|c| matches!(c, std::path::Component::Normal(_)))
+        .collect();
+    if comps.len() != 1 {
+        return false;
+    }
+    rel.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.eq_ignore_ascii_case("README.md"))
+        .unwrap_or(false)
+}
+
+fn rustbrainignore_requests_gitignore(workspace: &Path) -> bool {
+    let path = workspace.join(".rustbrainignore");
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    text.lines().any(|l| {
+        let t = l.trim().to_ascii_lowercase();
+        t == "# rustbrain: import-gitignore"
+            || t == "#!import-gitignore"
+            || t.contains("rustbrain: import-gitignore")
+    })
 }
 
 fn first_substantive_line(body: &str) -> String {

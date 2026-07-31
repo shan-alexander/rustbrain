@@ -212,6 +212,29 @@ impl Brain {
             },
         )
     }
+
+    /// Deterministic docs/ignore bootstrap for mature repositories.
+    ///
+    /// See [`crate::bootstrap::bootstrap_workspace`]. Does not replace a full
+    /// [`Self::sync`] — call sync afterward to index new files.
+    pub fn bootstrap(
+        workspace: impl AsRef<Path>,
+        opts: crate::bootstrap::BootstrapOptions,
+    ) -> Result<crate::bootstrap::BootstrapReport> {
+        crate::bootstrap::bootstrap_workspace(workspace.as_ref(), opts)
+    }
+
+    /// Health check for this brain (pending links, ratios, schema).
+    pub fn doctor(&self) -> Result<crate::doctor::DoctorReport> {
+        crate::doctor::run_doctor(&self.workspace)
+    }
+
+    /// Create a Markdown note on disk (`docs/…`) without opening a second DB.
+    ///
+    /// Call [`Self::sync`] afterward so FTS/graph pick it up.
+    pub fn note_new(&self, opts: &crate::note::NoteNewOptions) -> Result<crate::note::NoteCreated> {
+        crate::note::create_note(&self.workspace, opts)
+    }
 }
 
 fn canonicalize_or_owned(path: &Path) -> Result<PathBuf> {

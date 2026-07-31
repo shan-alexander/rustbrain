@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-31
+
+### Added
+
+- **`rustbrain bootstrap`** — deterministic mature-repo setup:
+  docs tree, ADR template, checklist, README harvest → `docs/goals/from-readme.md`,
+  AST module map (generated), interactive or `--yes` non-interactive mode.
+- **`.rustbrainignore`** — gitignore-inspired index filters; bootstrap can import
+  `.gitignore` and recommended extras (interactive prompts on TTY).
+- **`rustbrain doctor`** — schema/db/mmap health, type breakdown, pending links,
+  symbol/note ratio; `--json`, `--strict`.
+- **`rustbrain note new`** — `--type`, `--title`, `--note` (agent-friendly body),
+  `--tags`, `--aliases`, `--force`, `--sync`.
+- **`rustbrain links`** — list pending WikiLink / symbol refs (`--json`).
+- **Query filters** — `--no-symbols`, `--type goal,adr,concept`, `--all-types`.
+- **Context filters** — `--no-symbols`, `--no-hop-symbols`, `--type …`.
+- **README hub** — root `README.md` indexes as node id `readme` (default `goal`)
+  with hub aliases and ranking boost.
+
+### Library
+
+- Modules: `bootstrap`, `doctor`, `note`, `ignore`
+- `QueryOptions::{human, no_symbols, include_types, exclude_types}`
+- `ContextOptions::{no_symbols, hop_to_symbols, include_types, exclude_types}`
+- `PendingLink`, `DoctorReport`, `BootstrapReport`, `NoteNewOptions`
+
 ## [0.1.1] - 2026-07-31
 
 ### Fixed

@@ -1,29 +1,22 @@
 //! # rustbrain CLI
 //!
-//! Command-line interface for the [rustbrain](https://github.com/shan-alexander/rustbrain)
-//! second-brain engine. Thin wrapper around [`rustbrain_core::Brain`].
-//!
-//! ## Install
+//! Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbrain).
 //!
 //! ```bash
-//! cargo install rustbrain --locked
-//! ```
-//!
-//! ## Typical workflow
-//!
-//! ```bash
-//! rustbrain init
+//! rustbrain init && rustbrain bootstrap --yes --write
 //! rustbrain sync
-//! rustbrain query "topic" --scores
+//! rustbrain doctor
+//! rustbrain note new --type concept --title "X" --note "body for agents"
+//! rustbrain query "topic" --no-symbols --scores
 //! rustbrain context -p "explain X" -F markdown --hops 1
-//! rustbrain watch --debounce-ms 300
 //! ```
-//!
-//! Exit code `0` on success, `1` on error (message on stderr).
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use rustbrain_core::{Brain, GlobalRegistry, QueryOptions};
+use rustbrain_core::{
+    bootstrap_workspace, create_note, run_doctor, BootstrapMode, BootstrapOptions, Brain,
+    GlobalRegistry, NoteNewOptions, NodeType, QueryOptions,
+};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -47,6 +40,62 @@ enum Commands {
         #[arg(default_value = ".")]
         workspace: PathBuf,
     },
+    /// Deterministic docs/ignore bootstrap for mature repositories
+    Bootstrap {
+        /// Workspace root
+        #[arg(default_value = ".")]
+        workspace: PathBuf,
+        /// Write files (default: true when --yes; otherwise interactive may ask)
+        #[arg(long, default_value_t = false)]
+        write: bool,
+        /// Dry-run: print plan only
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+        /// Non-interactive (agents/CI): sensible defaults, no prompts
+        #[arg(long, short = 'y', default_value_t = false)]
+        yes: bool,
+        /// Overwrite existing generated files / ignore file
+        #[arg(long, default_value_t = false)]
+        force: bool,
+        /// Skip .rustbrainignore setup
+        #[arg(long, default_value_t = false)]
+        no_ignore: bool,
+        /// Force import of root .gitignore into .rustbrainignore
+        #[arg(long, default_value_t = false)]
+        import_gitignore: bool,
+        /// Do not import .gitignore
+        #[arg(long, default_value_t = false)]
+        no_import_gitignore: bool,
+    },
+    /// Health check: pending links, ratios, schema
+    Doctor {
+        /// Workspace root
+        #[arg(default_value = ".")]
+        workspace: PathBuf,
+        /// Emit JSON instead of text
+        #[arg(long, default_value_t = false)]
+        json: bool,
+        /// Exit 1 when unhealthy or when pending links exist
+        #[arg(long, default_value_t = false)]
+        strict: bool,
+    },
+    /// Create structured Markdown notes
+    Note {
+        #[command(subcommand)]
+        cmd: NoteCmd,
+    },
+    /// List unresolved WikiLink / symbol targets
+    Links {
+        /// Workspace root
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        /// Only show pending (default true)
+        #[arg(long, default_value_t = true)]
+        pending: bool,
+        /// JSON output
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
     /// Index notes and code symbols; bake the CSR mmap cache
     Sync {
         /// Target workspace directory
@@ -66,6 +115,15 @@ enum Commands {
         /// Show ranking scores
         #[arg(long, default_value_t = false)]
         scores: bool,
+        /// Exclude symbol nodes (typical for human search)
+        #[arg(long, default_value_t = false)]
+        no_symbols: bool,
+        /// Only these node types (comma-separated: goal,adr,concept,…)
+        #[arg(long, value_name = "TYPES")]
+        r#type: Option<String>,
+        /// Include all types including symbols (overrides --no-symbols)
+        #[arg(long, default_value_t = false)]
+        all_types: bool,
         /// Workspace root containing `.brain/`
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
@@ -81,6 +139,15 @@ enum Commands {
         /// Graph expansion hop depth (0 = seeds only)
         #[arg(long, default_value_t = 1)]
         hops: usize,
+        /// Exclude symbols from seeds (neighbors via anchors still allowed unless --no-hop-symbols)
+        #[arg(long, default_value_t = false)]
+        no_symbols: bool,
+        /// Also exclude symbols from graph-hop packing
+        #[arg(long, default_value_t = false)]
+        no_hop_symbols: bool,
+        /// Only these seed types (comma-separated)
+        #[arg(long, value_name = "TYPES")]
+        r#type: Option<String>,
         /// Output format: `xml` or `markdown`
         #[arg(short = 'F', long, default_value = "xml")]
         format: String,
@@ -120,9 +187,43 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum NoteCmd {
+    /// Create a new Markdown note under docs/
+    New {
+        /// Node type: goal, adr, alternative, concept, reference, edge_case
+        #[arg(long, value_name = "TYPE")]
+        r#type: String,
+        /// Title (H1 + filename slug)
+        #[arg(long)]
+        title: String,
+        /// Body text after the title (efficient for AI agents)
+        #[arg(long)]
+        note: Option<String>,
+        /// Comma-separated tags
+        #[arg(long)]
+        tags: Option<String>,
+        /// Comma-separated aliases
+        #[arg(long)]
+        aliases: Option<String>,
+        /// Override directory (default from type)
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Overwrite if the file exists
+        #[arg(long, default_value_t = false)]
+        force: bool,
+        /// Workspace root
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        /// Sync immediately after write
+        #[arg(long, default_value_t = false)]
+        sync: bool,
+    },
+}
+
 fn main() -> ExitCode {
     match run() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(e) => {
             eprintln!("error: {e:#}");
             ExitCode::FAILURE
@@ -130,7 +231,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<()> {
+fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -142,10 +243,167 @@ fn run() -> Result<()> {
                 brain.brain_dir().join("db.sqlite").display()
             );
             println!("nodes: {}", brain.database().count_nodes()?);
-
+            println!("hint: run `rustbrain bootstrap --yes --write` then `rustbrain sync`");
             if let Ok(mut reg) = GlobalRegistry::load() {
                 let _ = reg.register(brain.workspace());
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Bootstrap {
+            workspace,
+            write,
+            dry_run,
+            yes,
+            force,
+            no_ignore,
+            import_gitignore,
+            no_import_gitignore,
+        } => {
+            let write = if dry_run { false } else { write || yes };
+            let mode = if yes {
+                BootstrapMode::NonInteractive
+            } else {
+                BootstrapMode::Interactive
+            };
+            let import = if no_import_gitignore {
+                Some(false)
+            } else if import_gitignore {
+                Some(true)
+            } else if yes {
+                Some(workspace.join(".gitignore").is_file())
+            } else {
+                None // interactive may ask
+            };
+            let opts = BootstrapOptions {
+                mode,
+                write,
+                force,
+                setup_ignore: if no_ignore { Some(false) } else if yes { Some(true) } else { None },
+                import_gitignore: import,
+                ignore_extras: true,
+                harvest_readme: true,
+                module_map: true,
+                scaffold_docs: true,
+            };
+            let report = bootstrap_workspace(&workspace, opts)?;
+            for a in &report.actions {
+                println!("[{}] {} — {}", a.action, a.path, a.detail);
+            }
+            if report.wrote {
+                println!("\nbootstrap wrote files under {}", report.workspace.display());
+                println!("next: rustbrain sync && rustbrain doctor");
+            } else {
+                println!("\ndry-run complete (no files written). pass --write or --yes --write");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Doctor {
+            workspace,
+            json,
+            strict,
+        } => {
+            let report = run_doctor(&workspace)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", report.to_text());
+            }
+            let fail = !report.healthy || (strict && report.pending_links > 0);
+            Ok(if fail {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
+        Commands::Note { cmd } => match cmd {
+            NoteCmd::New {
+                r#type,
+                title,
+                note,
+                tags,
+                aliases,
+                dir,
+                force,
+                workspace,
+                sync,
+            } => {
+                let node_type = NodeType::parse(&r#type).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "unknown type '{type}'. use: goal, adr, alternative, concept, reference, edge_case"
+                    )
+                })?;
+                let tags = tags
+                    .map(|s| {
+                        s.split(',')
+                            .map(|t| t.trim().to_string())
+                            .filter(|t| !t.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let aliases = aliases
+                    .map(|s| {
+                        s.split(',')
+                            .map(|t| t.trim().to_string())
+                            .filter(|t| !t.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let created = create_note(
+                    &workspace,
+                    &NoteNewOptions {
+                        node_type,
+                        title,
+                        note,
+                        tags,
+                        aliases,
+                        dir,
+                        force,
+                    },
+                )?;
+                println!(
+                    "wrote {} (node id after sync: {})",
+                    created.rel_path.display(),
+                    created.node_id
+                );
+                if sync {
+                    let mut brain = Brain::open_or_create(&workspace)?;
+                    let stats = brain.sync()?;
+                    println!(
+                        "synced: upserted={} pending={} file_errors={}",
+                        stats.nodes_upserted, stats.edges_pending, stats.file_errors
+                    );
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+        },
+        Commands::Links {
+            workspace,
+            pending,
+            json,
+        } => {
+            let brain = Brain::open(&workspace).with_context(|| {
+                format!(
+                    "database not found under {}. run `rustbrain sync` first",
+                    workspace.display()
+                )
+            })?;
+            if pending {
+                let list = brain.database().list_pending_links()?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&list)?);
+                } else if list.is_empty() {
+                    println!("no pending links");
+                } else {
+                    println!("{} pending link(s):", list.len());
+                    for p in &list {
+                        println!(
+                            "  {} -[{}]-> {}",
+                            p.source_id, p.relation_type, p.raw_target
+                        );
+                    }
+                }
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Commands::Sync { workspace } => {
             let mut brain = Brain::open_or_create(&workspace)
@@ -165,22 +423,35 @@ fn run() -> Result<()> {
                 stats.mmap_written,
                 stats.file_errors
             );
-
             if let Ok(mut reg) = GlobalRegistry::load() {
                 let _ = reg.register(brain.workspace());
             }
+            Ok(ExitCode::SUCCESS)
         }
         Commands::Query {
             query,
             all_workspaces,
             limit,
             scores,
+            no_symbols,
+            r#type,
+            all_types,
             workspace,
         } => {
-            let opts = QueryOptions {
-                limit,
-                ..QueryOptions::default()
+            let mut opts = if no_symbols && !all_types {
+                QueryOptions::human()
+            } else {
+                QueryOptions::default()
             };
+            opts.limit = limit;
+            if all_types {
+                opts.no_symbols = false;
+                opts.include_types.clear();
+            }
+            if let Some(types) = r#type {
+                opts.include_types = parse_types_list(&types)?;
+                opts.no_symbols = false;
+            }
 
             if all_workspaces {
                 println!("searching all registered workspaces for '{query}' ...");
@@ -188,7 +459,7 @@ fn run() -> Result<()> {
                 let results = reg.search_all_ranked(&query, &opts)?;
                 if results.is_empty() {
                     println!("no matching nodes found");
-                    return Ok(());
+                    return Ok(ExitCode::SUCCESS);
                 }
                 for (idx, gh) in results.iter().enumerate() {
                     let node = &gh.hit.node;
@@ -212,11 +483,8 @@ fn run() -> Result<()> {
                             gh.workspace
                         );
                     }
-                    if let Some(p) = &node.file_path {
-                        println!("     path: {p}");
-                    }
                 }
-                return Ok(());
+                return Ok(ExitCode::SUCCESS);
             }
 
             let brain = Brain::open(&workspace).with_context(|| {
@@ -258,11 +526,15 @@ fn run() -> Result<()> {
                     }
                 }
             }
+            Ok(ExitCode::SUCCESS)
         }
         Commands::Context {
             for_prompt,
             max_tokens,
             hops,
+            no_symbols,
+            no_hop_symbols,
+            r#type,
             format,
             workspace,
         } => {
@@ -272,30 +544,35 @@ fn run() -> Result<()> {
                     workspace.display()
                 )
             })?;
-            let opts = rustbrain_core::ContextOptions {
+            let mut opts = rustbrain_core::ContextOptions {
                 max_tokens,
                 hop_depth: hops,
+                no_symbols,
+                hop_to_symbols: !no_hop_symbols,
                 ..rustbrain_core::ContextOptions::default()
             };
+            if let Some(types) = r#type {
+                opts.include_types = parse_types_list(&types)?;
+            }
             let bundle = brain.context_for_prompt_with(&for_prompt, &opts)?;
             match format.as_str() {
                 "markdown" | "md" => print!("{}", bundle.to_markdown()),
                 "xml" => print!("{}", bundle.to_xml()),
                 other => bail!("unknown format '{other}' (expected xml or markdown)"),
             }
+            Ok(ExitCode::SUCCESS)
         }
         Commands::Watch {
             workspace,
             debounce_ms,
         } => {
             let brain = Brain::open_or_create(&workspace)?;
-            // Ensure initial index
-            // (caller can sync first; we still open cleanly)
             println!(
                 "watching {} (debounce {debounce_ms}ms); Ctrl-C to stop",
                 brain.workspace().display()
             );
             brain.watch(debounce_ms)?;
+            Ok(ExitCode::SUCCESS)
         }
         Commands::Export {
             out,
@@ -314,14 +591,34 @@ fn run() -> Result<()> {
             );
             brain.export(&out, decouple_ast)?;
             println!("export complete");
+            Ok(ExitCode::SUCCESS)
         }
         Commands::Import { input, workspace } => {
             let mut brain = Brain::open_or_create(&workspace)?;
             println!("importing {} ...", input.display());
             let n = brain.import(&input)?;
             println!("imported {n} nodes");
+            Ok(ExitCode::SUCCESS)
         }
     }
+}
 
-    Ok(())
+fn parse_types_list(s: &str) -> Result<Vec<NodeType>> {
+    let mut out = Vec::new();
+    for part in s.split(',') {
+        let t = part.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let ty = NodeType::parse(t).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown node type '{t}'. use: goal, adr, alternative, concept, symbol, reference, edge_case"
+            )
+        })?;
+        out.push(ty);
+    }
+    if out.is_empty() {
+        bail!("--type requires at least one node type");
+    }
+    Ok(out)
 }

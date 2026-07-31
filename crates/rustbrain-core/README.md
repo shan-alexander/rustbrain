@@ -1,105 +1,127 @@
 # rustbrain-core
 
-Core engine for [**rustbrain**](https://github.com/shan-alexander/rustbrain): a project-scoped, Rust-native second brain for humans and AI agents.
+Core engine for [**rustbrain**](https://github.com/shan-alexander/rustbrain): project-scoped second brain for humans and AI agents.
 
-This is the **library** you depend on from application code. The `rustbrain` CLI is a thin wrapper around the same APIs.
-
-> **crates.io:** only `rustbrain-core` (this crate) and `rustbrain` (CLI) are published.  
-> Tree-sitter AST and Obsidian parsers ship **inside** this crate as feature-gated modules.
-
-## What it provides
-
-- **`Brain` façade** — open/create a `.brain/` store, sync a workspace, query, build agent context, export/import
-- **SQLite master store** — nodes, weighted edges, FTS5 BM25, aliases, tags, pending links, schema migrations
-- **Ranked search** — BM25 + title/id/tag/alias boosts + node-type priors
-- **Graph-aware context** — ranked seeds → CSR k-hop expansion → token-budget packing (XML or Markdown)
-- **Optional AST indexing** — tree-sitter Rust symbols (feature `ast`)
-- **Optional Obsidian parsing** — WikiLinks / frontmatter / Canvas (feature `obsidian`)
-- **Optional CSR mmap cache** — neighborhood walks (feature `mmap`)
-- **Optional file watch** — debounced re-index (feature `watch`)
+**crates.io:** only this library and the **`rustbrain`** CLI are published.  
+AST (tree-sitter) and Obsidian parsers live **inside** this crate as feature-gated modules.
 
 ## Install
 
 ```toml
 [dependencies]
-rustbrain-core = "0.1"
+rustbrain-core = "0.2"
 
-# Skip tree-sitter (lighter compile) — Markdown + FTS + mmap only:
-# rustbrain-core = { version = "0.1", default-features = false, features = ["obsidian", "mmap"] }
+# Lighter compile without tree-sitter:
+# rustbrain-core = { version = "0.2", default-features = false, features = ["obsidian", "mmap"] }
 ```
 
-**MSRV:** 1.80 · **License:** MIT OR Apache-2.0
+**MSRV:** 1.80 · **License:** MIT OR Apache-2.0 · C toolchain required for SQLite / optional AST.
 
-Requires a C toolchain when `ast` is enabled (tree-sitter) and for bundled SQLite.
+## Capabilities
+
+| Area | API |
+|------|-----|
+| Lifecycle | `Brain::create` / `open` / `open_or_create` / `sync` |
+| Bootstrap | `bootstrap_workspace`, `bootstrap_noninteractive` |
+| Notes | `create_note` / `NoteNewOptions` |
+| Health | `run_doctor` / `DoctorReport` |
+| Search | `query_ranked` + `QueryOptions::{human, no_symbols, include_types}` |
+| Context | `context_for_prompt_with` + `ContextOptions::{no_symbols, hop_to_symbols}` |
+| Ignore | `IgnoreSet`, `.rustbrainignore` |
+| Portability | `export` / `import` brainbundles |
+| Watch | `watch` (feature `watch`) |
 
 ## Quick start
 
 ```rust
-use rustbrain_core::{Brain, ContextOptions, QueryOptions, Result};
+use rustbrain_core::{
+    bootstrap_noninteractive, create_note, run_doctor, Brain, ContextOptions,
+    NoteNewOptions, NodeType, QueryOptions, Result,
+};
 
 fn main() -> Result<()> {
-    let mut brain = Brain::open_or_create(".")?;
+    let ws = std::path::Path::new(".");
+    bootstrap_noninteractive(ws, true, false)?;
+
+    let mut brain = Brain::open_or_create(ws)?;
     brain.sync()?;
 
-    let hits = brain.query_ranked("authentication", &QueryOptions::default())?;
-    for h in hits.iter().take(5) {
-        println!("{:.2} {}", h.score, h.node.title);
-    }
+    create_note(
+        ws,
+        &NoteNewOptions {
+            node_type: NodeType::Concept,
+            title: "Example".into(),
+            note: Some("Written by a tool.".into()),
+            tags: vec!["demo".into()],
+            aliases: vec![],
+            dir: None,
+            force: false,
+        },
+    )?;
+    brain.sync()?;
 
-    let ctx = brain.context_for_prompt("how do we store sessions?", 1500)?;
-    println!("{}", ctx.to_markdown());
+    let hits = brain.query_ranked("example", &QueryOptions::human())?;
+    let report = run_doctor(ws)?;
+    assert!(report.db_exists);
+
+    let ctx = brain.context_for_prompt_with(
+        "summarize example",
+        &ContextOptions {
+            max_tokens: 800,
+            hop_depth: 1,
+            hop_to_symbols: true,
+            ..ContextOptions::default()
+        },
+    )?;
+    println!("{}\n{}", report.to_text(), ctx.to_markdown());
+    let _ = hits;
     Ok(())
 }
 ```
+
+## Query / context nuances
+
+- **`QueryOptions::human()`** sets `no_symbols = true` so private helpers do not drown note search.
+- **`ContextOptions::hop_to_symbols`** (default `true`) still packs graph neighbors that are code symbols when seeds are notes — e.g. ADR → `symbol:…` anchors.
+- Root **`README.md`** becomes hub node id `readme` (type `goal` unless frontmatter overrides).
+
+## Ignore files
+
+Built-in skips: `target/`, `.git/`, `.brain/`, `node_modules/`, …
+
+Optional **`.rustbrainignore`** (gitignore-inspired). If it contains:
+
+```text
+# rustbrain: import-gitignore
+```
+
+…root `.gitignore` is merged when loading. Env `RUSTBRAIN_IMPORT_GITIGNORE=1` forces merge.
 
 ## Feature flags
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `ast` | yes | Tree-sitter Rust symbol extraction (`src/ast/`) |
-| `obsidian` | yes | WikiLinks, YAML frontmatter, Canvas (`src/obsidian/`) |
-| `mmap` | yes | Compile/open `.brain/graph.mmap` CSR cache |
-| `watch` | no | Debounced filesystem watcher |
-| `jshift` | no | In-place JSON field mutation helpers |
-| `full` | no | Enables every optional feature |
+| `ast` | ✓ | Tree-sitter Rust (`src/ast/`) |
+| `obsidian` | ✓ | WikiLinks / frontmatter / Canvas (`src/obsidian/`) |
+| `mmap` | ✓ | CSR `graph.mmap` |
+| `watch` | | Debounced filesystem watcher |
+| `jshift` | | In-place JSON helpers |
+| `full` | | All optional features |
 
-## On-disk data
+## On-disk
 
-Created under `<workspace>/.brain/`:
-
-| File | Role |
+| Path | Role |
 |------|------|
-| `db.sqlite` | Source of truth |
-| `graph.mmap` | CSR adjacency + id table |
-| `workspace.json` | Marker / metadata |
+| `.brain/db.sqlite` | Source of truth |
+| `.brain/graph.mmap` | CSR cache |
+| `docs/**/*.md` | Human notes (source) |
 
-See the workspace docs: [SCHEMA.md](../../docs/SCHEMA.md), [MMAP_FORMAT.md](../../docs/MMAP_FORMAT.md).
+Schema / mmap: repo `docs/SCHEMA.md`, `docs/MMAP_FORMAT.md`.  
+CLI detail: repo `docs/CLI.md`.
 
-## Module map
+## Related
 
-| Module | Responsibility |
-|--------|----------------|
-| `brain` | High-level `Brain` API |
-| `query` | Ranked FTS search |
-| `context` | Agent context assembly |
-| `storage` | SQLite + migrations |
-| `mmap` | CSR compiler/reader |
-| `indexer` | Workspace walk / sync |
-| `ast` | Tree-sitter symbols (feature) |
-| `obsidian` | WikiLinks / frontmatter / Canvas (feature) |
-| `symbols` | `symbol:…` ref parsing |
-| `exporter` | `.brainbundle` I/O |
-| `registry` | Global multi-workspace registry |
-
-## Related package
-
-- CLI: [`rustbrain`](https://crates.io/crates/rustbrain) (`cargo install rustbrain`)
-
-## Non-goals (v0.1)
-
-- Neural embeddings / ANN indexes (vector dim is 0 in the product path)
-- Cloud sync or multi-user servers
-- Full Obsidian vault write-back
+- CLI: [`rustbrain`](https://crates.io/crates/rustbrain)
 
 ## License
 

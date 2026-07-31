@@ -806,19 +806,20 @@ dependencies = [
 
 [[package]]
 name = "rustbrain"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
  "predicates",
  "rustbrain-core",
+ "serde_json",
  "tempfile",
 ]
 
 [[package]]
 name = "rustbrain-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "chrono",

@@ -103,3 +103,16 @@ See code: `rustbrain_core::id::node_id_from_rel_path`.
 - Lowercase, `/`-separated  
 - Extension stripped  
 - Whitespace → `-`
+
+### Special hubs
+
+| File | Node id | Default type |
+|------|---------|--------------|
+| Root `README.md` | `readme` | `goal` (unless frontmatter sets `node_type`) |
+
+Aliases for the hub include `readme`, `hub`, `home`, and the workspace directory name.
+
+## Ignore
+
+Indexing skips paths matched by built-in patterns and optional **`.rustbrainignore`**.
+See [CLI.md](CLI.md) for the dialect and bootstrap import of `.gitignore`.
