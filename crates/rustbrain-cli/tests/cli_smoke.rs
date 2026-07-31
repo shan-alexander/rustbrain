@@ -62,7 +62,7 @@ fn init_sync_query_context_export() {
         .success()
         .stdout(predicate::str::contains("Raft"));
 
-    // Critical: context must not panic on short flags.
+    // Critical: context must not panic on short flags + positional prompt.
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)
         .args(["context", "-p", "raft", "-F", "markdown", "-w", "."])
@@ -70,6 +70,13 @@ fn init_sync_query_context_export() {
         .success()
         .stdout(predicate::str::contains("rustbrain context"))
         .stdout(predicate::str::contains("tokens:"));
+
+    cargo_bin_cmd!("rustbrain")
+        .current_dir(root)
+        .args(["context", "raft", "-F", "markdown", "-w", "."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("rustbrain context"));
 
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)

@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.2:** bootstrap, doctor, note new, type filters, `.rustbrainignore`, README hub.  
+> **v0.3:** `setup`, natural-language query rewrite, body excerpts in context, parent walk for `.brain`.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---
@@ -31,12 +31,14 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
 
 ```bash
 cargo install rustbrain --locked          # CLI
+# ensure cargo bin is on PATH:
+#   export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
 ```toml
 # Library / agents
 [dependencies]
-rustbrain-core = "0.2"
+rustbrain-core = "0.3"
 ```
 
 **Build requirements:** C toolchain (bundled SQLite, tree-sitter). **MSRV:** 1.80.
@@ -50,11 +52,11 @@ rustbrain-core = "0.2"
 ```bash
 cd your-project
 
-rustbrain init
-# Mature codebase: scaffold docs + ignore + harvest README/AST (no LLM)
-rustbrain bootstrap --yes --write
-rustbrain sync
-rustbrain doctor
+# Agents / one-shot (recommended)
+rustbrain setup --yes
+
+# Or step-by-step:
+# rustbrain init && rustbrain bootstrap --yes --write && rustbrain sync && rustbrain doctor
 
 # Agent-friendly note creation
 rustbrain note new \
@@ -64,7 +66,7 @@ rustbrain note new \
   --sync
 
 rustbrain query "sqlite" --no-symbols --scores
-rustbrain context -p "why local sqlite" -F markdown --hops 1
+rustbrain context "why local sqlite" -F markdown --hops 1
 rustbrain links    # pending WikiLinks / symbol: refs
 ```
 
@@ -80,6 +82,7 @@ See **[docs/CLI.md](docs/CLI.md)** for every flag, ignore dialect, bootstrap out
 
 | Command | Purpose |
 |---------|---------|
+| `setup` | One-shot init + bootstrap + sync + doctor |
 | `init` | Create `.brain/db.sqlite` |
 | `bootstrap` | Docs tree, `.rustbrainignore`, README harvest, AST module map |
 | `sync` | Index Markdown / Canvas / Rust; bake `graph.mmap` |
@@ -87,7 +90,7 @@ See **[docs/CLI.md](docs/CLI.md)** for every flag, ignore dialect, bootstrap out
 | `note new` | Typed note (`--type`, `--title`, `--note`, `--sync`) |
 | `links` | List pending unresolved links |
 | `query <q>` | Ranked FTS (`--no-symbols`, `--type goal,adr`, `--scores`) |
-| `context -p …` | Agent context (`--no-symbols`, `--no-hop-symbols`, `--hops`) |
+| `context …` | Agent context (positional or `-p`; note-first; `--with-symbols`) |
 | `watch` | Debounced re-index |
 | `export` / `import` | Portable `.brainbundle` |
 
@@ -159,7 +162,7 @@ fn main() -> Result<()> {
         &ContextOptions {
             max_tokens: 1024,
             hop_depth: 1,
-            no_symbols: false,      // seeds may include notes only if set true
+            no_symbols: true,       // note-first seeds (default in 0.3)
             hop_to_symbols: true,   // still allow ADR → code neighbors
             ..ContextOptions::default()
         },
@@ -210,7 +213,7 @@ Ignore dialect + CLI details: [docs/CLI.md](docs/CLI.md).
 
 ---
 
-## What v0.2 claims / does not
+## What v0.3 claims / does not
 
 **Does:** local Markdown second brain, bootstrap for mature repos, doctor, agent `note new`, ranked FTS with type filters, graph-aware context (including note→symbol hops), portable bundles.
 

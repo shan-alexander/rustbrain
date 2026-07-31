@@ -3,12 +3,10 @@
 //! Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbrain).
 //!
 //! ```bash
-//! rustbrain init && rustbrain bootstrap --yes --write
-//! rustbrain sync
-//! rustbrain doctor
+//! rustbrain setup --yes          # init + bootstrap + sync (+ doctor)
 //! rustbrain note new --type concept --title "X" --note "body for agents"
 //! rustbrain query "topic" --no-symbols --scores
-//! rustbrain context -p "explain X" -F markdown --hops 1
+//! rustbrain context "why egui not tauri" -F markdown
 //! ```
 
 use anyhow::{bail, Context, Result};
@@ -39,6 +37,24 @@ enum Commands {
         /// Workspace directory (defaults to current directory)
         #[arg(default_value = ".")]
         workspace: PathBuf,
+    },
+    /// One-shot: init + bootstrap + sync (+ optional doctor) for agents/CI
+    Setup {
+        /// Workspace root
+        #[arg(default_value = ".")]
+        workspace: PathBuf,
+        /// Non-interactive (accepted for symmetry with bootstrap; setup is always non-interactive)
+        #[arg(long, short = 'y', default_value_t = true)]
+        yes: bool,
+        /// Overwrite generated bootstrap files
+        #[arg(long, default_value_t = false)]
+        force: bool,
+        /// Skip doctor at the end
+        #[arg(long, default_value_t = false)]
+        no_doctor: bool,
+        /// Skip bootstrap (only init + sync)
+        #[arg(long, default_value_t = false)]
+        no_bootstrap: bool,
     },
     /// Deterministic docs/ignore bootstrap for mature repositories
     Bootstrap {
@@ -130,28 +146,37 @@ enum Commands {
     },
     /// Build graph-aware prompt context (FTS seeds + CSR neighbors)
     Context {
-        /// Topic or prompt requirement
+        /// Topic or prompt (positional; same as `-p`)
+        #[arg(value_name = "PROMPT")]
+        prompt: Option<String>,
+        /// Topic or prompt requirement (`-p` / `--for-prompt`)
         #[arg(short = 'p', long = "for-prompt")]
-        for_prompt: String,
+        for_prompt: Option<String>,
         /// Approximate max tokens for context output
         #[arg(short = 'm', long, default_value = "2048")]
         max_tokens: usize,
         /// Graph expansion hop depth (0 = seeds only)
         #[arg(long, default_value_t = 1)]
         hops: usize,
-        /// Exclude symbols from seeds (neighbors via anchors still allowed unless --no-hop-symbols)
+        /// Include symbols as FTS seeds (default: notes-first; hops to symbols still allowed)
         #[arg(long, default_value_t = false)]
-        no_symbols: bool,
-        /// Also exclude symbols from graph-hop packing
+        with_symbols: bool,
+        /// Alias for `--with-symbols` (include every node type as seeds)
+        #[arg(long, default_value_t = false)]
+        all_types: bool,
+        /// Exclude symbols from graph-hop packing (as well as seeds)
         #[arg(long, default_value_t = false)]
         no_hop_symbols: bool,
+        /// Legacy alias: exclude symbol seeds (default behavior; kept for scripts)
+        #[arg(long, default_value_t = false, hide = true)]
+        no_symbols: bool,
         /// Only these seed types (comma-separated)
         #[arg(long, value_name = "TYPES")]
         r#type: Option<String>,
         /// Output format: `xml` or `markdown`
         #[arg(short = 'F', long, default_value = "xml")]
         format: String,
-        /// Workspace root
+        /// Workspace root (walks parents for `.brain` like git)
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
     },
@@ -243,10 +268,68 @@ fn run() -> Result<ExitCode> {
                 brain.brain_dir().join("db.sqlite").display()
             );
             println!("nodes: {}", brain.database().count_nodes()?);
-            println!("hint: run `rustbrain bootstrap --yes --write` then `rustbrain sync`");
+            println!("hint: run `rustbrain setup --yes` (or bootstrap --yes --write && sync)");
             if let Ok(mut reg) = GlobalRegistry::load() {
                 let _ = reg.register(brain.workspace());
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Setup {
+            workspace,
+            yes,
+            force,
+            no_doctor,
+            no_bootstrap,
+        } => {
+            let _ = yes; // always non-interactive for setup
+            let brain = Brain::create(&workspace)
+                .with_context(|| format!("failed to init brain in {}", workspace.display()))?;
+            println!(
+                "setup: initialized {}",
+                brain.brain_dir().join("db.sqlite").display()
+            );
+            if let Ok(mut reg) = GlobalRegistry::load() {
+                let _ = reg.register(brain.workspace());
+            }
+            if !no_bootstrap {
+                let import = workspace.join(".gitignore").is_file();
+                let opts = BootstrapOptions {
+                    mode: BootstrapMode::NonInteractive,
+                    write: true,
+                    force,
+                    setup_ignore: Some(true),
+                    import_gitignore: Some(import),
+                    ignore_extras: true,
+                    harvest_readme: true,
+                    module_map: true,
+                    scaffold_docs: true,
+                };
+                let report = bootstrap_workspace(&workspace, opts)?;
+                for a in &report.actions {
+                    if a.action != "next" {
+                        println!("  [{}] {} — {}", a.action, a.path, a.detail);
+                    }
+                }
+                println!("setup: bootstrap complete");
+            }
+            let mut brain = Brain::open_or_create(&workspace)?;
+            println!("setup: syncing {} ...", brain.workspace().display());
+            let stats = brain.sync()?;
+            println!(
+                "setup: sync complete nodes_upserted={} symbols={} pending={} file_errors={}",
+                stats.nodes_upserted, stats.symbol_anchors, stats.edges_pending, stats.file_errors
+            );
+            if let Ok(mut reg) = GlobalRegistry::load() {
+                let _ = reg.register(brain.workspace());
+            }
+            if !no_doctor {
+                let report = run_doctor(brain.workspace())?;
+                print!("{}", report.to_text());
+                if !report.healthy {
+                    return Ok(ExitCode::FAILURE);
+                }
+            }
+            println!("setup: done — try `rustbrain context \"topic\" -F markdown`");
             Ok(ExitCode::SUCCESS)
         }
         Commands::Bootstrap {
@@ -489,7 +572,7 @@ fn run() -> Result<ExitCode> {
 
             let brain = Brain::open(&workspace).with_context(|| {
                 format!(
-                    "database not found under {}. run `rustbrain sync` first",
+                    "no brain found at {} or parents. run `rustbrain setup --yes` or `rustbrain sync`",
                     workspace.display()
                 )
             })?;
@@ -529,32 +612,46 @@ fn run() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Commands::Context {
+            prompt,
             for_prompt,
             max_tokens,
             hops,
-            no_symbols,
+            with_symbols,
+            all_types,
             no_hop_symbols,
+            no_symbols,
             r#type,
             format,
             workspace,
         } => {
+            let topic = for_prompt
+                .or(prompt)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "missing prompt: pass a positional topic or `-p \"…\"` / `--for-prompt`"
+                    )
+                })?;
             let brain = Brain::open(&workspace).with_context(|| {
                 format!(
-                    "database not found under {}. run `rustbrain sync` first",
+                    "no brain found at {} or parents (looking for .brain/db.sqlite). run `rustbrain setup --yes`",
                     workspace.display()
                 )
             })?;
+            let include_symbol_seeds = with_symbols || all_types;
+            let _ = no_symbols; // accepted for back-compat with older scripts
             let mut opts = rustbrain_core::ContextOptions {
                 max_tokens,
                 hop_depth: hops,
-                no_symbols,
+                // Note-first by default; symbols still hop in via anchors unless --no-hop-symbols.
+                no_symbols: !include_symbol_seeds,
                 hop_to_symbols: !no_hop_symbols,
                 ..rustbrain_core::ContextOptions::default()
             };
             if let Some(types) = r#type {
                 opts.include_types = parse_types_list(&types)?;
+                opts.no_symbols = false;
             }
-            let bundle = brain.context_for_prompt_with(&for_prompt, &opts)?;
+            let bundle = brain.context_for_prompt_with(&topic, &opts)?;
             match format.as_str() {
                 "markdown" | "md" => print!("{}", bundle.to_markdown()),
                 "xml" => print!("{}", bundle.to_xml()),

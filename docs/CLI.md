@@ -1,33 +1,48 @@
-# rustbrain CLI reference (v0.2)
+# rustbrain CLI reference (v0.3)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.2.0 --locked
+# or pin: cargo install rustbrain --version 0.3.0 --locked
+# ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
 All commands accept a workspace path (default `.`). Prefer `-w /path` when the CWD is not the project root.
+`query` / `context` / `doctor` **walk parent directories** for `.brain/db.sqlite` (git-style).
 
 ---
 
 ## Lifecycle
 
 ```text
-init ──► bootstrap ──► sync ──► doctor
-                │                  │
-                │                  ├── note new ──► sync
-                │                  ├── query / context / links
-                │                  └── watch (optional)
-                └── (edit docs/*.md by hand or Obsidian)
+setup ──► (or: init ──► bootstrap ──► sync ──► doctor)
+                              │
+                              ├── note new ──► sync
+                              ├── query / context / links
+                              └── watch (optional)
 ```
 
 | Stage | Command | Notes |
 |-------|---------|--------|
+| One-shot | `setup --yes` | init + bootstrap + sync + doctor |
 | Empty store | `init` | Creates `.brain/db.sqlite` only |
 | Mature repo seed | `bootstrap` | Docs tree + ignore + README/AST harvest |
 | Compile notes → graph | `sync` | FTS + edges + `graph.mmap` |
 | Health | `doctor` | Pending links, ratios, exit codes |
+
+---
+
+## `setup`
+
+```bash
+rustbrain setup --yes
+rustbrain setup --yes --force          # overwrite generated bootstrap files
+rustbrain setup --yes --no-doctor
+rustbrain setup --yes --no-bootstrap   # init + sync only
+```
+
+Always non-interactive. Preferred entry point for agents and CI.
 
 ---
 
@@ -40,11 +55,10 @@ rustbrain init /path/to/project
 
 Creates `.brain/db.sqlite` (schema v1) and registers the workspace in the global registry when possible.
 
-**Does not** create docs or index anything. Next steps usually:
+**Does not** create docs or index anything. Prefer:
 
 ```bash
-rustbrain bootstrap --yes --write
-rustbrain sync
+rustbrain setup --yes
 ```
 
 ---
@@ -245,31 +259,35 @@ rustbrain query "raft" --all-workspaces
 | `--all-workspaces` | Merge ranked hits across registry |
 | `-w` | Workspace |
 
-Ranking = FTS5 BM25 + title/id/tag/alias boosts + type priors + README hub boost. Not neural search.
+Ranking = FTS5 BM25 + stopword strip + multi-token OR MATCH + title/id/tag/alias/coverage boosts + type priors + README hub boost. Not neural search.
+
+Natural-language prompts work: `why egui not tauri` becomes FTS `"egui" OR "tauri"` after dropping stopwords.
 
 ---
 
 ## `context`
 
 Build an agent-oriented pack: ranked seeds + optional CSR k-hop neighbors, under a token budget.
+Packs **body excerpts** (from FTS content), not titles alone.
 
 ```bash
-rustbrain context -p "why duckdb cli" -F markdown --hops 1 -m 1200
-rustbrain context -p "overview" -F xml --no-symbols
-rustbrain context -p "strict notes only" --no-symbols --no-hop-symbols
+rustbrain context "why duckdb cli" -F markdown --hops 1 -m 1200
+rustbrain context -p "overview" -F xml
+rustbrain context "strict notes only" --no-hop-symbols
+rustbrain context "open" --with-symbols     # include symbols as seeds
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-p` / `--for-prompt` | Topic string |
+| positional / `-p` / `--for-prompt` | Topic string |
 | `-m` / `--max-tokens` | Soft budget (~4 chars/token) |
 | `--hops` | Graph depth (`0` = seeds only) |
-| `--no-symbols` | Exclude symbols from **seeds** |
+| `--with-symbols` / `--all-types` | Include symbols as **seeds** (default is note-first) |
 | `--no-hop-symbols` | Also exclude symbols from **neighbors** (default allows ADR → code hops) |
 | `--type a,b` | Seed type filter |
 | `-F xml\|markdown` | Output format (XML entity-escaped) |
 
-**Nuance:** Default agent mode keeps `hop_to_symbols` so decisions can surface `symbol:query_json`-style neighbors even when seeds are notes-only.
+**Defaults (v0.3):** note-first seeds; hops still expand to useful symbols (noise consts filtered). Empty packs print a short recovery hint.
 
 ---
 

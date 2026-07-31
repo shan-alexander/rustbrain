@@ -279,6 +279,17 @@ impl Database {
         self.index_fts_on(&self.conn, node_id, title, content, tags)
     }
 
+    /// Fetch indexed FTS body/content for a node (for context excerpts).
+    pub fn get_fts_content(&self, node_id: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT content FROM node_fts WHERE node_id = ?1 LIMIT 1")?;
+        let content: Option<String> = stmt
+            .query_row(params![node_id], |row| row.get(0))
+            .optional()?;
+        Ok(content)
+    }
+
     pub(crate) fn index_fts_on(
         &self,
         conn: &Connection,

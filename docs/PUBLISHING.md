@@ -31,14 +31,14 @@ cargo publish -p rustbrain
 ## GitHub
 
 ```bash
-git tag -a v0.2.0 -m "v0.2.0"
+git tag -a v0.3.0 -m "v0.3.0"
 git push origin main --tags
 ```
 
 ## Consumer install
 
 ```toml
-rustbrain-core = "0.2"
+rustbrain-core = "0.3"
 ```
 
 ```bash

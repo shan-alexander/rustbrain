@@ -9,7 +9,7 @@ AST (tree-sitter) and Obsidian parsers live **inside** this crate as feature-gat
 
 ```toml
 [dependencies]
-rustbrain-core = "0.2"
+rustbrain-core = "0.3"
 
 # Lighter compile without tree-sitter:
 # rustbrain-core = { version = "0.2", default-features = false, features = ["obsidian", "mmap"] }
@@ -82,8 +82,10 @@ fn main() -> Result<()> {
 ## Query / context nuances
 
 - **`QueryOptions::human()`** sets `no_symbols = true` so private helpers do not drown note search.
-- **`ContextOptions::hop_to_symbols`** (default `true`) still packs graph neighbors that are code symbols when seeds are notes — e.g. ADR → `symbol:…` anchors.
+- **Natural-language FTS** strips stopwords and ORs significant tokens (`why X not Y` → `"x" OR "y"`).
+- **`ContextOptions`** defaults to note-first seeds + body excerpts; **`hop_to_symbols`** (default `true`) still packs useful ADR → code neighbors.
 - Root **`README.md`** becomes hub node id `readme` (type `goal` unless frontmatter overrides).
+- **`Brain::open`** walks parents for `.brain` (use `open_exact` for a fixed path).
 
 ## Ignore files
 

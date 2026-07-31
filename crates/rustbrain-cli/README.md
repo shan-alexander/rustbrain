@@ -8,7 +8,7 @@ Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbra
 
 ```bash
 cargo install rustbrain --locked
-# pin: cargo install rustbrain --version 0.2.0 --locked
+# pin: cargo install rustbrain --version 0.3.0 --locked
 ```
 
 Requires a C toolchain (bundled SQLite + tree-sitter).
@@ -17,14 +17,11 @@ Requires a C toolchain (bundled SQLite + tree-sitter).
 
 ```bash
 cd your-project
-rustbrain init
-rustbrain bootstrap --yes --write   # mature repos / agents
-rustbrain sync
-rustbrain doctor
+rustbrain setup --yes
 
 rustbrain note new --type concept --title "Topic" --note "Body for agents." --sync
 rustbrain query "topic" --no-symbols --scores
-rustbrain context -p "explain topic" -F markdown --hops 1
+rustbrain context "explain topic" -F markdown --hops 1
 rustbrain links
 ```
 
@@ -32,6 +29,7 @@ rustbrain links
 
 | Command | Description |
 |---------|-------------|
+| `setup` | One-shot init + bootstrap + sync + doctor |
 | `init` | Create `.brain/db.sqlite` |
 | `bootstrap` | Scaffold docs, ignore file, README harvest, AST map (`--yes`, `--write`, `--force`) |
 | `sync` | Index notes + Rust AST; bake CSR mmap |
@@ -39,7 +37,7 @@ rustbrain links
 | `note new` | Create note (`--type`, `--title`, `--note`, `--sync`) |
 | `links` | List pending unresolved links |
 | `query` | Ranked search (`--no-symbols`, `--type`, `--scores`, `--all-workspaces`) |
-| `context` | Agent context (`-p`, `-m`, `--hops`, `--no-symbols`, `--no-hop-symbols`, `-F`) |
+| `context` | Agent context (positional/`-p`, excerpts, `--with-symbols`, `--no-hop-symbols`, `-F`) |
 | `watch` | Debounced live re-index |
 | `export` / `import` | `.brainbundle` portable graph |
 

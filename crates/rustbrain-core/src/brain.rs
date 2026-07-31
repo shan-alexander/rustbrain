@@ -71,10 +71,31 @@ impl Brain {
 
     /// Open an existing brain under `workspace/.brain`.
     ///
+    /// If `workspace/.brain/db.sqlite` is missing, walks **parent directories**
+    /// (like git) until a brain is found or the filesystem root is reached.
+    ///
     /// # Errors
     ///
-    /// Returns [`BrainError::BrainNotFound`] if `db.sqlite` is missing.
+    /// Returns [`BrainError::BrainNotFound`] if no brain is found.
     pub fn open(workspace: impl AsRef<Path>) -> Result<Self> {
+        let start = canonicalize_or_owned(workspace.as_ref())?;
+        if let Some((ws, brain_dir)) = find_brain_dir(&start) {
+            let db = Database::open(brain_dir.join("db.sqlite"))?;
+            return Ok(Self {
+                workspace: ws,
+                brain_dir,
+                db,
+            });
+        }
+        Err(BrainError::BrainNotFound {
+            path: start.join(".brain"),
+        })
+    }
+
+    /// Open a brain **only** at `workspace` (no parent walk).
+    ///
+    /// Prefer [`Self::open`] for CLI tooling.
+    pub fn open_exact(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = canonicalize_or_owned(workspace.as_ref())?;
         let brain_dir = workspace.join(".brain");
         let db_path = brain_dir.join("db.sqlite");
@@ -89,12 +110,16 @@ impl Brain {
         })
     }
 
-    /// Open an existing brain, or [`Self::create`] if none is present.
+    /// Open an existing brain, or [`Self::create`] if none is present at `workspace`
+    /// (does not walk parents for create — create is always local).
     pub fn open_or_create(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = workspace.as_ref();
         let db_path = workspace.join(".brain").join("db.sqlite");
         if db_path.exists() {
-            Self::open(workspace)
+            Self::open_exact(workspace)
+        } else if let Ok(b) = Self::open(workspace) {
+            // Found a parent brain when CWD is a subdir.
+            Ok(b)
         } else {
             Self::create(workspace)
         }
@@ -250,11 +275,42 @@ fn fs_canonicalize(path: &Path) -> Result<PathBuf> {
     std::fs::canonicalize(path).map_err(BrainError::from)
 }
 
+/// Walk `start` and its parents looking for `.brain/db.sqlite`.
+///
+/// Returns `(workspace_root, brain_dir)`.
+pub fn find_brain_dir(start: &Path) -> Option<(PathBuf, PathBuf)> {
+    let mut cur = start.to_path_buf();
+    loop {
+        let brain_dir = cur.join(".brain");
+        if brain_dir.join("db.sqlite").is_file() {
+            return Some((cur, brain_dir));
+        }
+        if !cur.pop() {
+            break;
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::ContextRole;
     use tempfile::tempdir;
+
+    #[test]
+    fn open_walks_parent_for_brain() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let sub = root.join("src").join("nested");
+        std::fs::create_dir_all(&sub).unwrap();
+        Brain::create(root).unwrap();
+        let opened = Brain::open(&sub).unwrap();
+        assert_eq!(
+            opened.workspace().canonicalize().unwrap(),
+            root.canonicalize().unwrap()
+        );
+    }
 
     #[test]
     fn create_sync_query_context_export() {

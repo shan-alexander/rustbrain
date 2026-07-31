@@ -76,6 +76,13 @@ fn bootstrap_doctor_note_query_filters() {
 
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)
+        .args(["context", "why local tools", "-F", "markdown", "-w", "."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("packed:").or(predicate::str::contains("rustbrain context")));
+
+    cargo_bin_cmd!("rustbrain")
+        .current_dir(root)
         .args(["links", "-w", "."])
         .assert()
         .success();

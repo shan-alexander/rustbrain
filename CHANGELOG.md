@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-31
+
+### Added
+
+- **`rustbrain setup --yes`** — one-shot init + bootstrap + sync (+ doctor) for agents/CI.
+- **Natural-language FTS rewrite** — stopword stripping + multi-token `OR` MATCH so prompts
+  like `why egui not tauri` seed README/goal notes instead of returning zero hits.
+- **Context body excerpts** — packs FTS content (truncated) into seeds/neighbors; Markdown/XML
+  render `excerpt` / fenced body blocks (not title-only).
+- **`Brain::open` parent walk** — finds `.brain/db.sqlite` in parents (git-style); `open_exact`
+  for strict path open.
+- **Bootstrap appends `.brain/` to `.gitignore`** when writing.
+- **Empty-context hints** when packing yields zero nodes.
+- CLI `context` accepts a **positional** prompt (`rustbrain context "topic"`) in addition to `-p`.
+
+### Changed
+
+- **Context defaults are note-first** (`ContextOptions::no_symbols = true`); symbols still hop
+  in via anchors unless `--no-hop-symbols`. Use `--with-symbols` / `--all-types` for symbol seeds.
+- Graph hops prefer **doc seeds**; low-signal symbol neighbors (theme consts, short noise) are
+  filtered; max packed symbol neighbors capped.
+- Multi-token coverage boosts ranking when several significant terms hit the same note.
+- Init / error messages point at `rustbrain setup --yes`.
+
+### Library
+
+- `prepare_search_query`, `tokenize_query`, `PreparedQuery`, `find_brain_dir`
+- `ContextNode.excerpt`, `ContextOptions::{hop_from_docs_only, include_excerpts, agent, with_symbols}`
+- `Database::get_fts_content`, `Brain::open_exact`
+
 ## [0.2.0] - 2026-07-31
 
 ### Added

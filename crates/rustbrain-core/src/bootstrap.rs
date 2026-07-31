@@ -156,13 +156,14 @@ pub fn bootstrap_workspace(workspace: &Path, mut opts: BootstrapOptions) -> Resu
                 std::fs::write(&marker, serde_json::to_string_pretty(&meta)?)?;
             }
         }
+        ensure_gitignore_brain(&workspace, true, &mut actions)?;
     }
 
     actions.push(BootstrapAction {
         action: "next".into(),
         path: ".".into(),
         detail: if wrote {
-            "run `rustbrain sync` then `rustbrain doctor`".into()
+            "run `rustbrain sync` then `rustbrain doctor` (or `rustbrain setup --yes` next time)".into()
         } else {
             "re-run with --write to apply".into()
         },
@@ -803,6 +804,60 @@ pub fn bootstrap_noninteractive(workspace: &Path, write: bool, force: bool) -> R
     )
 }
 
+/// Ensure `.brain/` is listed in the workspace `.gitignore` (create file if needed).
+fn ensure_gitignore_brain(
+    workspace: &Path,
+    write: bool,
+    actions: &mut Vec<BootstrapAction>,
+) -> Result<()> {
+    let gi = workspace.join(".gitignore");
+    if gi.is_file() {
+        let text = std::fs::read_to_string(&gi)?;
+        let already = text.lines().any(|l| {
+            let t = l.trim();
+            t == ".brain/" || t == ".brain" || t == "**/.brain/" || t == "/.brain/"
+        });
+        if already {
+            actions.push(BootstrapAction {
+                action: "skip".into(),
+                path: ".gitignore".into(),
+                detail: ".brain/ already ignored".into(),
+            });
+            return Ok(());
+        }
+        if write {
+            let mut out = text;
+            if !out.ends_with('\n') && !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str("\n# rustbrain local index\n.brain/\n");
+            std::fs::write(&gi, out)?;
+            actions.push(BootstrapAction {
+                action: "update".into(),
+                path: ".gitignore".into(),
+                detail: "appended .brain/".into(),
+            });
+        } else {
+            actions.push(BootstrapAction {
+                action: "would_update".into(),
+                path: ".gitignore".into(),
+                detail: "append .brain/".into(),
+            });
+        }
+    } else if write {
+        std::fs::write(
+            &gi,
+            "# rustbrain local index\n.brain/\n",
+        )?;
+        actions.push(BootstrapAction {
+            action: "create".into(),
+            path: ".gitignore".into(),
+            detail: "created with .brain/".into(),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -831,6 +886,8 @@ mod tests {
         assert!(dir.path().join("docs/adr/TEMPLATE.md").is_file());
         assert!(dir.path().join(".rustbrainignore").is_file());
         assert!(dir.path().join("docs/goals/from-readme.md").is_file());
+        let gi = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert!(gi.contains(".brain/"), "expected .brain/ in gitignore: {gi}");
         #[cfg(feature = "ast")]
         assert!(dir
             .path()

@@ -199,6 +199,9 @@ pub struct ContextNode {
     pub title: String,
     /// Short summary if available.
     pub summary: Option<String>,
+    /// Body / FTS excerpt for agent grounding (may be truncated).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
     /// Repo-relative path if available.
     pub file_path: Option<String>,
     /// Ranking score used during packing (higher is better).
@@ -240,7 +243,19 @@ impl ContextBundle {
             if let Some(s) = &n.summary {
                 out.push_str(&format!("\n> {}\n", s));
             }
+            if let Some(ex) = &n.excerpt {
+                out.push_str("\n```\n");
+                out.push_str(ex);
+                if !ex.ends_with('\n') {
+                    out.push('\n');
+                }
+                out.push_str("```\n");
+            }
             out.push('\n');
+        }
+        if self.nodes.is_empty() {
+            out.push_str("_No nodes packed._ Try a shorter topic (key nouns only), or:\n");
+            out.push_str("```\nrustbrain query \"topic\" --no-symbols --scores\nrustbrain context -p \"topic\" --no-symbols -F markdown\n```\n\n");
         }
         if !self.neighbor_ids.is_empty() {
             out.push_str("### Graph neighbor ids\n\n");
@@ -284,6 +299,12 @@ impl ContextBundle {
                 out.push_str(&format!(
                     "    <summary>{}</summary>\n",
                     xml_escape(s)
+                ));
+            }
+            if let Some(ex) = &n.excerpt {
+                out.push_str(&format!(
+                    "    <excerpt>{}</excerpt>\n",
+                    xml_escape(ex)
                 ));
             }
             if let Some(p) = &n.file_path {

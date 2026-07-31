@@ -4,7 +4,7 @@
 //! brain (and for cross-workspace merge) but are not calibrated probabilities.
 
 use crate::error::Result;
-use crate::fts::escape_fts5_query;
+use crate::fts::prepare_search_query;
 use crate::storage::Database;
 use crate::types::{Node, NodeType};
 use rusqlite::params;
@@ -86,9 +86,9 @@ impl Database {
     /// Ranked search combining FTS5 BM25 with tag, alias, title, and id boosts.
     ///
     /// Steps:
-    /// 1. Escape the user query for FTS5 `MATCH`
+    /// 1. Prepare the query (tokenize, drop stopwords, OR multi-token MATCH)
     /// 2. Collect BM25-ordered candidates (oversample by `2 × limit`)
-    /// 3. Apply additive boosts for title/id/tag/alias token hits
+    /// 3. Apply additive boosts for title/id/tag/alias token hits + multi-token coverage
     /// 4. Apply multiplicative type priors from [`QueryOptions::type_boosts`]
     /// 5. Augment with pure tag/alias exact matches FTS may have missed
     /// 6. Sort by score, dedupe by id, truncate to `limit`
@@ -97,18 +97,9 @@ impl Database {
     ///
     /// Returns [`crate::BrainError::FtsQuery`] for empty input after tokenization.
     pub fn search_ranked(&self, query: &str, opts: &QueryOptions) -> Result<Vec<RankedHit>> {
-        let tokens: Vec<String> = query
-            .split_whitespace()
-            .filter(|t| !t.is_empty())
-            .map(|t| t.to_lowercase())
-            .collect();
-        if tokens.is_empty() {
-            return Err(crate::error::BrainError::FtsQuery(
-                "query must contain at least one non-whitespace token".into(),
-            ));
-        }
+        let prepared = prepare_search_query(query)?;
+        let tokens = &prepared.tokens;
 
-        let escaped = escape_fts5_query(query)?;
         let mut stmt = self.conn.prepare(
             "SELECT n.id, n.node_type, n.title, n.file_path, n.symbol_hash, n.summary,
                     n.content_hash, n.created_at, n.updated_at,
@@ -120,7 +111,7 @@ impl Database {
              LIMIT ?2",
         )?;
 
-        let rows = stmt.query_map(params![escaped, opts.limit as i64 * 2], |row| {
+        let rows = stmt.query_map(params![prepared.fts_match, opts.limit as i64 * 2], |row| {
             let type_str: String = row.get(1)?;
             let node_type = NodeType::parse(&type_str).unwrap_or(NodeType::Concept);
             let symbol_hash_raw: Option<i64> = row.get(4)?;
@@ -151,32 +142,57 @@ impl Database {
             let fts_score = (-bm25).max(0.01);
             let mut score = fts_score;
             let mut reasons = vec![format!("fts:{fts_score:.3}")];
+            if prepared.used_or {
+                reasons.push("fts:or".into());
+            }
             // Hub boost for root README node.
             if node.id == "readme" || node.file_path.as_deref() == Some("README.md") {
                 score *= 1.2;
                 reasons.push("hub:readme".into());
             }
 
-            // Title token hits
+            // Title / id token hits + multi-token coverage bonus
             let title_l = node.title.to_lowercase();
             let id_l = node.id.to_lowercase();
-            for t in &tokens {
-                if title_l.split_whitespace().any(|w| w == t) || title_l.contains(t) {
+            let fts_body = self
+                .get_fts_content(&node.id)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .to_lowercase();
+            let mut coverage = 0usize;
+            for t in tokens {
+                let mut hit_tok = false;
+                if title_l.split_whitespace().any(|w| w == t) || title_l.contains(t.as_str()) {
                     score += 2.0;
                     reasons.push(format!("title:{t}"));
+                    hit_tok = true;
                 }
-                if id_l.rsplit('/').next() == Some(t.as_str()) || id_l.ends_with(t) {
+                if id_l.rsplit('/').next() == Some(t.as_str()) || id_l.contains(t.as_str()) {
                     score += 1.5;
                     reasons.push(format!("id:{t}"));
+                    hit_tok = true;
                 }
+                if !fts_body.is_empty() && fts_body.contains(t.as_str()) {
+                    score += 0.75;
+                    hit_tok = true;
+                }
+                if hit_tok {
+                    coverage += 1;
+                }
+            }
+            if tokens.len() > 1 && coverage > 1 {
+                let bonus = 1.5 * (coverage as f32);
+                score += bonus;
+                reasons.push(format!("coverage:{coverage}/{}", tokens.len()));
             }
 
             // Tag boosts
             let tags = self.get_tags_for(&node.id)?;
             for tag in &tags {
                 let tag_l = tag.to_lowercase();
-                for t in &tokens {
-                    if tag_l == *t || tag_l.contains(t) {
+                for t in tokens {
+                    if tag_l == *t || tag_l.contains(t.as_str()) {
                         score += 3.0;
                         reasons.push(format!("tag:{tag}"));
                     }
@@ -187,8 +203,8 @@ impl Database {
             let aliases = self.get_aliases_for(&node.id)?;
             for alias in &aliases {
                 let a = alias.to_lowercase();
-                for t in &tokens {
-                    if a == *t || a.contains(t) {
+                for t in tokens {
+                    if a == *t || a.contains(t.as_str()) {
                         score += 2.5;
                         reasons.push(format!("alias:{alias}"));
                     }
@@ -211,7 +227,7 @@ impl Database {
         }
 
         // Also pull pure tag/alias matches that FTS may have missed (short queries).
-        self.augment_with_tag_alias_hits(&tokens, &mut hits, opts)?;
+        self.augment_with_tag_alias_hits(tokens, &mut hits, opts)?;
 
         hits.retain(|h| opts.allows(&h.node.node_type));
 
