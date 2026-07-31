@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.7:** orphan detection in doctor; soft auto-links via `links --auto` (filename + tags).  
+> **v0.3.8:** first-class `analysis` notes (`docs/analysis/`) for dated investigations.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---
@@ -121,12 +121,19 @@ Implemented by symbol:StorageEngine and symbol:demo::crate::StorageEngine::open.
 | `node_type` | Intent |
 |-------------|--------|
 | `goal` | Goals, non-goals, SLAs |
-| `adr` | Architectural decisions |
+| `adr` | Architectural decisions (committed choices) |
 | `alternative` | Options considered |
-| `concept` | Atomic notes (default for most docs) |
+| `concept` | Timeless atomic notes (“what is X”) |
+| `analysis` | Dated investigation (compare options, benches, data, design digs); optional recs |
 | `symbol` | Code entities (usually from AST) |
 | `reference` | External crates / APIs |
 | `edge_case` | Traps, bugs, platform quirks |
+
+```bash
+# Pre-decision investigation (e.g. after cargo bench / criterion)
+rustbrain note new --type analysis --title "query path bench 2026-07-31" \
+  --body "Baseline vs patch: p50 -12% cold. See target/criterion/… Artifacts summarized; not an ADR yet."
+```
 
 - **WikiLinks:** `[[Note]]`, `[[Note#H]]`, `[[Note\|Alias]]` (skipped inside code fences)  
 - **Code anchors:** `symbol:Name` / `symbol:crate::mod::Name` → edges `anchors`  

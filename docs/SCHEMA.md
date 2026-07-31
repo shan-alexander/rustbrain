@@ -19,7 +19,7 @@ Recommended pragmas: `journal_mode=WAL`, `busy_timeout=5000`.
 | Column | Type | Notes |
 |--------|------|-------|
 | id | TEXT PK | Stable path slug, e.g. `docs/concepts/raft` |
-| node_type | TEXT | `goal` / `adr` / `alternative` / `concept` / `symbol` / `reference` / `edge_case` |
+| node_type | TEXT | `goal` / `adr` / `alternative` / `concept` / `analysis` / `symbol` / `reference` / `edge_case` |
 | title | TEXT | Display title |
 | file_path | TEXT | Repo-relative path (nullable) |
 | symbol_hash | INTEGER | Optional u64 (stored as i64) |

@@ -6,10 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The seven first-class domain node types in a rustbrain repository.
+/// First-class domain node types in a rustbrain repository.
 ///
 /// Serialized as `snake_case` strings in YAML frontmatter and SQLite
-/// (`goal`, `adr`, `alternative`, `concept`, `symbol`, `reference`, `edge_case`).
+/// (`goal`, `adr`, `alternative`, `concept`, `analysis`, `symbol`, `reference`, `edge_case`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeType {
@@ -21,6 +21,11 @@ pub enum NodeType {
     Alternative,
     /// Pure atomic technical or domain concept note (Zettelkasten-style).
     Concept,
+    /// Time-bound investigation (comparison, diagnosis, data/bench review, options).
+    ///
+    /// Often agent-authored and dated; may recommend but is **not** a decision (see [`Adr`]).
+    /// Can link to many goals, concepts, edge cases, and symbols without implying a DAG step.
+    Analysis,
     /// Codebase AST entity (function, struct, trait, module) from Tree-Sitter.
     Symbol,
     /// External dependency, crate quirk, API caveat, or documentation link.
@@ -37,6 +42,7 @@ impl NodeType {
             NodeType::Adr => "adr",
             NodeType::Alternative => "alternative",
             NodeType::Concept => "concept",
+            NodeType::Analysis => "analysis",
             NodeType::Symbol => "symbol",
             NodeType::Reference => "reference",
             NodeType::EdgeCase => "edge_case",
@@ -53,6 +59,7 @@ impl NodeType {
             "adr" => Some(NodeType::Adr),
             "alternative" => Some(NodeType::Alternative),
             "concept" => Some(NodeType::Concept),
+            "analysis" | "analyses" => Some(NodeType::Analysis),
             "symbol" => Some(NodeType::Symbol),
             "reference" => Some(NodeType::Reference),
             "edge_case" => Some(NodeType::EdgeCase),
@@ -361,5 +368,8 @@ mod tests {
     fn node_type_no_silent_fallback() {
         assert!(NodeType::parse("not_a_type").is_none());
         assert_eq!(NodeType::parse("concept"), Some(NodeType::Concept));
+        assert_eq!(NodeType::parse("analysis"), Some(NodeType::Analysis));
+        assert_eq!(NodeType::parse("analyses"), Some(NodeType::Analysis));
+        assert_eq!(NodeType::Analysis.as_str(), "analysis");
     }
 }

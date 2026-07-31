@@ -530,6 +530,7 @@ fn pack_rank(c: &Candidate) -> f32 {
         NodeType::Adr => 2.5,
         NodeType::Goal => 2.0,
         NodeType::EdgeCase => 1.8,
+        NodeType::Analysis => 1.65,
         NodeType::Concept => 1.4,
         NodeType::Reference => 1.2,
         NodeType::Alternative => 1.1,

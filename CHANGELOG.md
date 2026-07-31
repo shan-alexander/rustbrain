@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.8] - 2026-07-31
+
+### Added — `analysis` node type
+
+- **`NodeType::Analysis`** (`analysis`; parse also accepts `analyses`)
+- Default dir: **`docs/analysis/`** (bootstrap scaffolds it)
+- **`note new --type analysis`** with optional light scaffold:
+  Question/scope, When, Findings, Artifacts (e.g. criterion / `cargo bench` evidence),
+  Recommendations (not a decision), Open questions / edge cases, Related
+- Ranking / context pack mild boost (between concept and edge_case/ADR)
+- Docs + AGENTS.md type guidance: concept vs analysis vs ADR
+
+Analysis notes are **time-bound investigations** (crate compare, perf/bench review, design
+options, data digests, …). They may recommend; **decisions still belong in ADRs**.
+
 ## [0.3.7] - 2026-07-31
 
 ### Added — orphans + soft auto-links (P0/P1)

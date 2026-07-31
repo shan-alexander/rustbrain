@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.7)
+# rustbrain CLI reference (v0.3.8)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.7 --locked
+# or pin: cargo install rustbrain --version 0.3.8 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -108,7 +108,7 @@ rustbrain bootstrap --yes --write --agents-template ./my-agents.md
 
 | Path | Purpose |
 |------|---------|
-| `docs/goals/`, `docs/adr/`, `docs/concepts/`, `docs/edge_cases/`, `docs/implementation/`, `docs/experience/` | Directory scaffold |
+| `docs/goals/`, `docs/adr/`, `docs/concepts/`, `docs/analysis/`, `docs/edge_cases/`, `docs/implementation/`, `docs/experience/` | Directory scaffold |
 | `docs/adr/TEMPLATE.md` | ADR template (human fills real ADRs) |
 | `docs/goals/README.md` | Goals index stub |
 | `docs/BOOTSTRAP_CHECKLIST.md` | Promote drafts → real knowledge |
@@ -219,18 +219,36 @@ rustbrain note new --type adr --title "Use local SQLite" \
 
 | Flag | Meaning |
 |------|---------|
-| `--type` | `goal`, `adr`, `concept`, `edge_case`, … |
+| `--type` | `goal`, `adr`, `concept`, `analysis`, `edge_case`, … |
 | `--title` | Becomes the Markdown **H1** + filename slug |
 | `--note` / **`--body`** | Body text **after** the H1 (aliases of each other) |
 | `--tags` / `--aliases` | Comma-separated |
 | `--no-sync` | Do not index after write |
 | `--force` | Overwrite existing file |
 
-Example (also shown after `sync` / `doctor` / `--help`):
+| Type | Folder | Use for |
+|------|--------|---------|
+| `concept` | `docs/concepts/` | Timeless “what is X” |
+| `analysis` | `docs/analysis/` | Dated investigation (crate compare, design dig, **bench/criterion review**, data digest, …). Recs optional; not a decision |
+| `adr` | `docs/adr/` | We chose X (often after one or more analyses) |
+| `edge_case` | `docs/edge_cases/` | A specific trap (often *surfaced by* an analysis) |
+| `goal` | `docs/goals/` | Aims / non-goals |
+
+Example goal (also shown after `sync` / `doctor` / `--help`):
 
 ```bash
 rustbrain note new --type goal --title "Use rustbrain well" \
   --body "Prefer rustbrain context/query before large refactors. Capture decisions with note new --type adr. Run sync after doc/code changes. Keep docs truthful — do not invent ADR history."
+```
+
+Example analysis (empty body → scaffold sections; or pass `--body`):
+
+```bash
+rustbrain note new --type analysis --title "criterion query-path 2026-07-31" \
+  --body "Compared main vs branch. p50 -12% cold cache. Artifacts: target/criterion/…. Recommendation: merge patch; not an ADR until we accept the tradeoff."
+
+# Filter later:
+rustbrain query "criterion" --type analysis --scores
 ```
 
 ---

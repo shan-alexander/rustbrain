@@ -90,6 +90,8 @@ fn main() -> Result<()> {
   `BootstrapOptions::{write_agents_md, agents_template}`; resolve templates via
   `resolve_agents_md_template` / `default_agents_md_template`. Workspace files
   `AGENTS.template.md` and `.rustbrain/AGENTS.template.md` are auto-discovered.
+- **`NodeType::Analysis`** (`docs/analysis/`) for dated investigations (bench reviews,
+  crate comparisons, design digs). Not an ADR until you promote a decision.
 
 ## Ignore files
 

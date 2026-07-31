@@ -42,6 +42,7 @@ pub fn default_dir_for_type(ty: &NodeType) -> &'static str {
         NodeType::Adr => "docs/adr",
         NodeType::Alternative => "docs/adr",
         NodeType::Concept => "docs/concepts",
+        NodeType::Analysis => "docs/analysis",
         NodeType::Symbol => "docs/concepts",
         NodeType::Reference => "docs/concepts",
         NodeType::EdgeCase => "docs/edge_cases",
@@ -120,6 +121,7 @@ pub fn create_note(workspace: &Path, opts: &NoteNewOptions) -> Result<NoteCreate
             NodeType::Goal => {
                 "\n## Goals\n\n- \n\n## Non-goals\n\n- \n".to_string()
             }
+            NodeType::Analysis => ANALYSIS_NOTE_TEMPLATE.to_string(),
             _ => "\n".to_string(),
         }
     } else {
@@ -148,6 +150,42 @@ pub fn create_note(workspace: &Path, opts: &NoteNewOptions) -> Result<NoteCreate
     })
 }
 
+/// Scaffold body for empty analysis notes (episodic, not a decision).
+const ANALYSIS_NOTE_TEMPLATE: &str = r#"
+## Question / scope
+
+<!-- What are we investigating? (crate comparison, perf, design options, data, …) -->
+
+## When
+
+<!-- ISO date/time is useful in the title or here, e.g. 2026-07-31 -->
+
+## Findings
+
+-
+
+## Artifacts (optional)
+
+<!-- Links or summaries of evidence: criterion `cargo bench` output, tables, logs, PRs, plots. Prefer paths/commands over pasting huge dumps. -->
+
+-
+
+## Recommendations (optional — not a decision)
+
+<!-- Promotion path: if/when you commit, write an ADR and link it with [[…]]. -->
+
+-
+
+## Open questions / edge cases
+
+-
+
+## Related
+
+<!-- [[goals/…]]  [[concepts/…]]  symbol:Type::method  [[docs/edge_cases/…]] -->
+
+"#;
+
 fn format_yaml_list(items: &[String]) -> String {
     if items.is_empty() {
         return "[]".into();
@@ -170,6 +208,57 @@ fn format_yaml_list(items: &[String]) -> String {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn creates_analysis_under_docs_analysis() {
+        let dir = tempdir().unwrap();
+        let created = create_note(
+            dir.path(),
+            &NoteNewOptions {
+                node_type: NodeType::Analysis,
+                title: "Criterion bench: query path".into(),
+                note: Some(
+                    "Compared baseline vs patched run_sql. p50 improved 12% on cold cache.".into(),
+                ),
+                tags: vec!["bench".into(), "criterion".into()],
+                aliases: vec![],
+                dir: None,
+                force: false,
+            },
+        )
+        .unwrap();
+        assert!(created
+            .rel_path
+            .to_string_lossy()
+            .starts_with("docs/analysis/"));
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        assert!(text.contains("node_type: analysis"));
+        assert!(text.contains("p50 improved"));
+        assert!(text.contains("# Criterion bench: query path"));
+    }
+
+    #[test]
+    fn analysis_empty_body_gets_scaffold_sections() {
+        let dir = tempdir().unwrap();
+        let created = create_note(
+            dir.path(),
+            &NoteNewOptions {
+                node_type: NodeType::Analysis,
+                title: "egui vs tauri".into(),
+                note: None,
+                tags: vec![],
+                aliases: vec![],
+                dir: None,
+                force: false,
+            },
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        assert!(text.contains("## Question / scope"));
+        assert!(text.contains("## Findings"));
+        assert!(text.contains("## Recommendations"));
+        assert!(text.contains("cargo bench"));
+    }
 
     #[test]
     fn creates_adr_with_body() {

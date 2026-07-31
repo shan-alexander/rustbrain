@@ -49,6 +49,7 @@ impl Default for QueryOptions {
                 (NodeType::Goal, 1.15),
                 (NodeType::Adr, 1.1),
                 (NodeType::EdgeCase, 1.1),
+                (NodeType::Analysis, 1.08),
                 (NodeType::Concept, 1.05),
                 (NodeType::Symbol, 0.95),
             ],

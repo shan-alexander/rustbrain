@@ -101,6 +101,7 @@ fn trivial_tag(tag: &str) -> bool {
             | "reference"
             | "edge_case"
             | "alternative"
+            | "analysis"
             | "readme"
             | "generated"
             | "index"
@@ -150,6 +151,7 @@ fn list_note_nodes(db: &Database) -> Result<Vec<Node>> {
         NodeType::Goal,
         NodeType::Adr,
         NodeType::Concept,
+        NodeType::Analysis,
         NodeType::EdgeCase,
         NodeType::Reference,
         NodeType::Alternative,

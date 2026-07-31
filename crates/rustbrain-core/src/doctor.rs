@@ -444,6 +444,7 @@ fn assess_knowledge_density(
         NodeType::Goal,
         NodeType::Adr,
         NodeType::Concept,
+        NodeType::Analysis,
         NodeType::EdgeCase,
         NodeType::Reference,
         NodeType::Alternative,
