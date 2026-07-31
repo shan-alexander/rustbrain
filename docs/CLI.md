@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.9)
+# rustbrain CLI reference (v0.3.10)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.9 --locked
+# or pin: cargo install rustbrain --version 0.3.10 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -164,6 +164,9 @@ rustbrain sync /path/to/project
 ```
 
 Indexes Markdown, Canvas (if present), Rust AST symbols; resolves WikiLinks / `symbol:` refs; bakes `graph.mmap`.
+
+Also indexes **rustdoc WikiLinks**: `/// See [[docs/adr/…]]` creates `doc_links` edges
+from the symbol node to the note (bidirectional graph with note-side `symbol:…` anchors).
 
 Reports `file_errors=N` when individual files fail (does not abort the whole walk).
 

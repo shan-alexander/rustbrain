@@ -460,65 +460,164 @@ impl WorkspaceIndexer {
                 &anchor.module_path,
                 &anchor.symbol_name,
             );
-            // Content hash from signature so unchanged symbols are skipped next sync.
+            // Include doc comments in the hash so WikiLink edits in /// re-index.
             let sig = format!(
-                "{}::{}::{}@{}-{}",
+                "{}::{}::{}@{}-{}#{}",
                 anchor.crate_name,
                 anchor.module_path,
                 anchor.symbol_name,
                 anchor.start_line,
-                anchor.end_line
-            );
-            let chash = crate::id::content_hash(sig.as_bytes());
-            if let Some(existing) = self.db.get_content_hash(&node_id)? {
-                if existing == chash {
-                    stats.nodes_skipped_unchanged += 1;
-                    stats.symbol_anchors += 1;
-                    continue;
-                }
-            }
-
-            let now = Utc::now().timestamp();
-            let node = Node {
-                id: node_id.clone(),
-                node_type: NodeType::Symbol,
-                title: anchor.symbol_name.clone(),
-                file_path: Some(anchor.file_path.clone()),
-                symbol_hash: Some(anchor.symbol_hash),
-                summary: anchor.doc_comment.clone(),
-                content_hash: Some(chash),
-                created_at: now,
-                updated_at: now,
-            };
-            self.db.insert_node(&node)?;
-
-            // Aliases for resolution: bare name, Type::method, full path.
-            let mut aliases = vec![anchor.symbol_name.clone()];
-            if let Some((_, method)) = anchor.symbol_name.split_once("::") {
-                aliases.push(method.to_string());
-            }
-            aliases.push(format!(
-                "{}::{}::{}",
-                anchor.crate_name, anchor.module_path, anchor.symbol_name
-            ));
-            self.db.replace_node_aliases(&node_id, &aliases)?;
-
-            let fts_body = format!(
-                "{} {} {} {}",
-                anchor.symbol_name,
-                anchor.module_path,
-                anchor.crate_name,
+                anchor.end_line,
                 anchor.doc_comment.as_deref().unwrap_or("")
             );
-            self.db
-                .index_fts(&node_id, &anchor.symbol_name, &fts_body, "symbol")?;
+            let chash = crate::id::content_hash(sig.as_bytes());
+            let unchanged = self
+                .db
+                .get_content_hash(&node_id)?
+                .map(|existing| existing == chash)
+                .unwrap_or(false);
 
-            stats.nodes_upserted += 1;
+            if !unchanged {
+                let now = Utc::now().timestamp();
+                let node = Node {
+                    id: node_id.clone(),
+                    node_type: NodeType::Symbol,
+                    title: anchor.symbol_name.clone(),
+                    file_path: Some(anchor.file_path.clone()),
+                    symbol_hash: Some(anchor.symbol_hash),
+                    summary: anchor.doc_comment.clone(),
+                    content_hash: Some(chash),
+                    created_at: now,
+                    updated_at: now,
+                };
+                self.db.insert_node(&node)?;
+
+                // Aliases for resolution: bare name, Type::method, full path.
+                let mut aliases = vec![anchor.symbol_name.clone()];
+                if let Some((_, method)) = anchor.symbol_name.split_once("::") {
+                    aliases.push(method.to_string());
+                }
+                aliases.push(format!(
+                    "{}::{}::{}",
+                    anchor.crate_name, anchor.module_path, anchor.symbol_name
+                ));
+                self.db.replace_node_aliases(&node_id, &aliases)?;
+
+                let fts_body = format!(
+                    "{} {} {} {}",
+                    anchor.symbol_name,
+                    anchor.module_path,
+                    anchor.crate_name,
+                    anchor.doc_comment.as_deref().unwrap_or("")
+                );
+                self.db
+                    .index_fts(&node_id, &anchor.symbol_name, &fts_body, "symbol")?;
+
+                stats.nodes_upserted += 1;
+            } else {
+                stats.nodes_skipped_unchanged += 1;
+            }
+
+            // Always (re)link rustdoc WikiLinks → notes so new notes resolve later.
+            self.link_symbol_doc_wikis(&node_id, anchor.doc_comment.as_deref(), stats)?;
+
             stats.symbol_anchors += 1;
         }
         stats.rust_files += 1;
         Ok(())
     }
+
+    /// Parse `[[WikiLinks]]` in rustdoc (`///` / `//!` / `/**`) and edge symbol → note.
+    ///
+    /// Relation type: `doc_links` (code documents/references a brain node).
+    /// Unresolved targets become pending links (resolved on later syncs).
+    #[cfg(feature = "ast")]
+    fn link_symbol_doc_wikis(
+        &self,
+        symbol_node_id: &str,
+        doc_comment: Option<&str>,
+        stats: &mut SyncStats,
+    ) -> Result<()> {
+        let now = Utc::now().timestamp();
+        let doc_plain = doc_comment.map(strip_rustdoc_prefixes).unwrap_or_default();
+
+        self.db.with_transaction(|conn| {
+            self.db
+                .clear_edges_from_on(conn, symbol_node_id, "doc_links")?;
+            // Drop only pending rows for this symbol that were doc_links (full clear is ok:
+            // symbols do not use other pending kinds).
+            self.db.clear_pending_links_for_on(conn, symbol_node_id)?;
+
+            if doc_plain.trim().is_empty() {
+                return Ok(());
+            }
+
+            // WikiLink extraction lives under the `obsidian` feature (default on).
+            #[cfg(feature = "obsidian")]
+            {
+                let wikis = crate::obsidian::extract_wikilinks(&doc_plain);
+                for w in wikis {
+                    let target = w.target_node.trim();
+                    if target.is_empty() {
+                        continue;
+                    }
+                    // Skip pure symbol: refs in docs — notes own note→code anchors.
+                    if target.starts_with("symbol:") {
+                        continue;
+                    }
+                    let resolved = resolve_against_conn(conn, target)?;
+                    if let Some(target_id) = resolved {
+                        if target_id == symbol_node_id {
+                            continue;
+                        }
+                        let edge = Edge {
+                            source_id: symbol_node_id.to_string(),
+                            target_id,
+                            relation_type: "doc_links".into(),
+                            weight: 1.0,
+                            decay_rate: 0.0,
+                            created_at: now,
+                        };
+                        self.db.insert_edge_on(conn, &edge)?;
+                        stats.edges_created += 1;
+                    } else {
+                        self.db.insert_pending_link_on(
+                            conn,
+                            symbol_node_id,
+                            &format!("[[{target}]]"),
+                            "doc_links",
+                            now,
+                        )?;
+                        stats.edges_pending += 1;
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+/// Normalize `///` / `//!` / block-doc lines into plain text for WikiLink extraction.
+#[cfg(feature = "ast")]
+fn strip_rustdoc_prefixes(doc: &str) -> String {
+    let mut out = String::new();
+    for line in doc.lines() {
+        let t = line.trim();
+        let body = if let Some(rest) = t.strip_prefix("///") {
+            rest.strip_prefix(' ').unwrap_or(rest)
+        } else if let Some(rest) = t.strip_prefix("//!") {
+            rest.strip_prefix(' ').unwrap_or(rest)
+        } else if t.starts_with("/**") || t.starts_with("*/") {
+            continue;
+        } else if let Some(rest) = t.strip_prefix('*') {
+            rest.strip_prefix(' ').unwrap_or(rest)
+        } else {
+            t
+        };
+        out.push_str(body);
+        out.push('\n');
+    }
+    out
 }
 
 fn is_root_readme(rel: &Path) -> bool {
@@ -802,6 +901,68 @@ mod tests {
         let hits = indexer.database().search_fts("raft").unwrap();
         assert!(!hits.is_empty());
         assert!(hits.iter().any(|n| n.id.contains("raft")));
+    }
+
+    #[test]
+    fn strip_rustdoc_prefixes_keeps_wikilink() {
+        let raw = "/// Primary engine. See [[use-sqlite]].\n/// Second line.";
+        let plain = strip_rustdoc_prefixes(raw);
+        assert!(plain.contains("[[use-sqlite]]"));
+        assert!(!plain.contains("///"));
+    }
+
+    #[cfg(all(feature = "ast", feature = "obsidian"))]
+    #[test]
+    fn rustdoc_wikilink_creates_doc_links_edge() {
+        let dir = tempdir().unwrap();
+        let docs = dir.path().join("docs/adr");
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            docs.join("use-sqlite.md"),
+            "---\nnode_type: adr\naliases: [use-sqlite]\n---\n# Use SQLite\n\nLocal store.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            src.join("lib.rs"),
+            r#"/// Primary engine. See [[use-sqlite]] and [[docs/adr/use-sqlite]].
+pub struct StorageEngine;
+
+impl StorageEngine {
+    /// Open the store.
+    pub fn open() {}
+}
+"#,
+        )
+        .unwrap();
+
+        let brain = dir.path().join(".brain");
+        std::fs::create_dir_all(&brain).unwrap();
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        let indexer = WorkspaceIndexer::new(db, dir.path());
+        // Two syncs: notes first pass may race walk order; second resolves pending.
+        let _ = indexer.index_workspace().unwrap();
+        let s = indexer.index_workspace().unwrap();
+        let _ = s;
+
+        let edges = indexer.database().get_all_edges().unwrap();
+        let doc_links: Vec<_> = edges
+            .iter()
+            .filter(|e| e.relation_type == "doc_links")
+            .collect();
+        assert!(
+            !doc_links.is_empty(),
+            "expected doc_links from rustdoc WikiLink, edges={edges:?}"
+        );
+        assert!(doc_links.iter().any(|e| e.source_id.contains("StorageEngine")));
+        assert!(doc_links.iter().any(|e| e.target_id.contains("use-sqlite")
+            || e.target_id.contains("docs/adr/use-sqlite")));
     }
 
     #[test]

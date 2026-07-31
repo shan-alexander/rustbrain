@@ -110,6 +110,15 @@ See code: `rustbrain_core::id::node_id_from_rel_path`.
 |------|---------|--------------|
 | Root `README.md` | `readme` | `goal` (unless frontmatter sets `node_type`) |
 
+### Edge `relation_type` (common)
+
+| Type | Direction | Source |
+|------|-----------|--------|
+| `relates_to` | note → note | WikiLink in Markdown |
+| `anchors` | note → symbol | `symbol:…` / `[[symbol:…]]` in notes |
+| `doc_links` | symbol → note | `[[WikiLink]]` in rustdoc (`///`) |
+| `auto_filename` / `auto_tag` | soft | `links --auto` (low weight) |
+
 Aliases for the hub include `readme`, `hub`, `home`, and the workspace directory name.
 
 ## Ignore

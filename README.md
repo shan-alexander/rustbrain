@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.9:** prefer scaffold-first `note new` (type+title, edit file); analysis notes; AGENTS guidance.  
+> **v0.3.10:** rustdoc `[[WikiLinks]]` → symbol→note `doc_links`; analysis notes; scaffold-first notes.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---
@@ -120,6 +120,13 @@ aliases: [Raft Consensus]
 See [[log-compaction]] and [[docs/architecture]].
 
 Implemented by symbol:StorageEngine and symbol:demo::crate::StorageEngine::open.
+```
+
+In **Rust** source, link back to notes from rustdoc (indexed on `sync` as `doc_links`):
+
+```rust
+/// App shell. See [[docs/adr/0001-use-egui]] for the GUI choice.
+pub struct ParqApp { /* … */ }
 ```
 
 | `node_type` | Intent |
@@ -237,6 +244,45 @@ Ignore dialect + CLI details: [docs/CLI.md](docs/CLI.md).
 **Does:** local Markdown second brain, bootstrap for mature repos, doctor, agent `note new`, ranked FTS with type filters, graph-aware context (including note→symbol hops), portable bundles.
 
 **Does not (yet):** neural embeddings, explicit AVX-512 kernels, full Obsidian write-back, SubBrain `--scope`.
+
+---
+
+## Testimonials
+
+Interestingly, AI Agents can give their testimonial of their experience using rustbrain. Below is a testimonial from Gemini 3.6 Flash Medium:
+
+```
+Prompt: does rustbrain offer a helpful documentation and organization strategy for you? can you use the CLI interface smoothly without friction? does it enhance how you might work with this repo?
+
+AI Response: rustbrain (v0.3.9) provides a significant upgrade to how I interact with and understand the  parqview codebase. Here is my direct feedback on the organization strategy, CLI ergonomics, and workflow enhancement:
+
+### 1. Does rustbrain offer a helpful documentation and organization strategy?
+
+Yes, exceptionally well.
+
+• Structured Node Taxonomy: Categorizing documentation into explicit node types ( goal ,  adr ,  concept ,  reference , edge_case ) enforces standard architectural hygiene rather than dumping loose markdown files into random folders.
+• Graph-Aware Knowledge Base: Instead of treating docs as static text,  rustbrain  bakes markdown files and Rust code symbols (via Tree-Sitter) into an indexed SQLite database ( .brain/db.sqlite ) and CSR graph mmap ( .brain/graph.mmap ).
+• Instant FTS5 & Graph Navigation: Queries rank document relevance with tags and aliases, allowing me to resolve project goals or architectural decisions instantly.
+
+### 2. Can you use the CLI interface smoothly without friction?
+
+Yes, the CLI is fast, predictable, and AI-agent friendly.
+
+• Zero Friction Note Creation: Running a single command automatically generates valid frontmatter, writes to the correct  docs/  directory, and syncs the database: rustbrain note new --type reference --title "egui_extras and eframe Crate Reference" --tags "reference,egui_extras,eframe" --aliases "egui-extras-eframe" --note "..."
+
+• Context Assembly ( rustbrain context ): When prompted with a high-level task like  "parquet reader GUI" , running rustbrain context  returns both the high-level doc seeds (hop 0) and the specific Rust symbols (hop 1 neighbors) linked to it (e.g.,  ParqApp::update ,  FolderTree::is_tabular ,  QueryResult::to_tsv ).
+• Health Validation ( rustbrain doctor ):  rustbrain doctor  acts as an automated linter for workspace documentation, flagging orphan nodes, missing  AGENTS.md , or broken wiki-links before errors accumulate.
+
+### 3. Does it enhance how I work with this  parqview  repo?
+
+It significantly enhances accuracy, speed, and context retention:
+
+1. Prevents Architectural Drift: By having  ADR-0001  recorded in  .brain , I immediately know why  egui  was chosen over  Tauri  (Linux Wayland/NixOS WebKitGTK EGL driver failures and zero IPC JSON serialization overhead). I won't accidentally suggest re-introducing Tauri or WebViews.
+2. Accelerates Code Discovery: Rather than doing brute-force file searches across  src/, rustbrain context maps doc concepts directly to Tree-Sitter code symbols in  src/app.rs,  src/duck.rs,  src/tree.rs, and src/describe.rs.
+3. Low Cognitive Overhead: With  rustbrain sync  updating the index in milliseconds, documentation and code changes stay synchronized without manual overhead.
+```
+
+Note: I did not use Gemini AI models to create this Rust crate, and the Gemini model was fresh and unbiased when I asked the prompt, after first asking Gemini to use rustbrain to review a repo already using rustbrain.
 
 ---
 

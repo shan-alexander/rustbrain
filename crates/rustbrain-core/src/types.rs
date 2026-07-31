@@ -106,6 +106,7 @@ pub struct Node {
 /// Directed weighted edge between two nodes.
 ///
 /// Common `relation_type` values: `relates_to` (WikiLink), `anchors` (note→symbol),
+/// `doc_links` (symbol→note from rustdoc `[[WikiLinks]]`), `auto_*` soft links,
 /// plus free-form labels imported from Obsidian Canvas.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Edge {
