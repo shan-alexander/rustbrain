@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.3:** bootstrap writes configurable `AGENTS.md` (agent cookbook); `--no-agents-md` to skip.  
+> **v0.3.4:** bootstrap/setup write configurable root `AGENTS.md` (agent cookbook); full docs.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---
@@ -52,25 +52,32 @@ rustbrain-core = "0.3"
 ```bash
 cd your-project
 
-# Agents / one-shot (recommended)
+# Agents / one-shot (recommended) — also writes AGENTS.md
 rustbrain setup --yes
+
+# Optional: skip or customize the agent cookbook
+# rustbrain setup --yes --no-agents-md
+# rustbrain setup --yes --agents-template ./AGENTS.template.md
 
 # Or step-by-step:
 # rustbrain init && rustbrain bootstrap --yes --write && rustbrain sync && rustbrain doctor
 
-# Agent-friendly note creation
+# Agent-friendly note creation (auto-syncs by default)
 rustbrain note new \
   --type adr \
   --title "Use local SQLite" \
-  --note "Embedded store; no network at runtime." \
-  --sync
+  --note "Embedded store; no network at runtime."
 
-rustbrain query "sqlite" --no-symbols --scores
-rustbrain context "why local sqlite" -F markdown --hops 1
+rustbrain query "sqlite" --scores
+rustbrain context "why local sqlite"
 rustbrain links    # pending WikiLinks / symbol: refs
 ```
 
-Interactive humans can run `rustbrain bootstrap --write` **without** `--yes` to answer prompts about `.rustbrainignore` and `.gitignore` import.
+`setup` / `bootstrap` write root **`AGENTS.md`** (how agents should use rustbrain in this repo).
+Template order: `--agents-template` → `RUSTBRAIN_AGENTS_TEMPLATE` → `AGENTS.template.md` /
+`.rustbrain/AGENTS.template.md` → built-in default. Opt out: `--no-agents-md`.
+
+Interactive humans can run `rustbrain bootstrap --write` **without** `--yes` to answer prompts about `.rustbrainignore`, `.gitignore` import, and `AGENTS.md`.
 
 ### Full CLI reference
 
@@ -213,7 +220,7 @@ Ignore dialect + CLI details: [docs/CLI.md](docs/CLI.md).
 
 ---
 
-## What v0.3 claims / does not
+## What v0.3.x claims / does not
 
 **Does:** local Markdown second brain, bootstrap for mature repos, doctor, agent `note new`, ranked FTS with type filters, graph-aware context (including note→symbol hops), portable bundles.
 

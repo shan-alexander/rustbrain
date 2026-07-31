@@ -12,7 +12,7 @@ AST (tree-sitter) and Obsidian parsers live **inside** this crate as feature-gat
 rustbrain-core = "0.3"
 
 # Lighter compile without tree-sitter:
-# rustbrain-core = { version = "0.2", default-features = false, features = ["obsidian", "mmap"] }
+# rustbrain-core = { version = "0.3", default-features = false, features = ["obsidian", "mmap"] }
 ```
 
 **MSRV:** 1.80 · **License:** MIT OR Apache-2.0 · C toolchain required for SQLite / optional AST.
@@ -22,7 +22,7 @@ rustbrain-core = "0.3"
 | Area | API |
 |------|-----|
 | Lifecycle | `Brain::create` / `open` / `open_or_create` / `sync` |
-| Bootstrap | `bootstrap_workspace`, `bootstrap_noninteractive` |
+| Bootstrap | `bootstrap_workspace`, `bootstrap_noninteractive`, `default_agents_md_template` |
 | Notes | `create_note` / `NoteNewOptions` |
 | Health | `run_doctor` / `DoctorReport` |
 | Search | `query_ranked` + `QueryOptions::{human, no_symbols, include_types}` |
@@ -86,8 +86,10 @@ fn main() -> Result<()> {
 - **`ContextOptions`** defaults to note-first seeds + body excerpts; **`hop_to_symbols`** (default `true`) still packs useful ADR → code neighbors.
 - Root **`README.md`** becomes hub node id `readme` (type `goal` unless frontmatter overrides).
 - **`Brain::open`** walks parents for `.brain` (use `open_exact` for a fixed path).
-- **Bootstrap** writes root `AGENTS.md` by default (`write_agents_md`, `agents_template`,
-  or workspace `AGENTS.template.md`).
+- **Bootstrap** writes root `AGENTS.md` by default. Control with
+  `BootstrapOptions::{write_agents_md, agents_template}`; resolve templates via
+  `resolve_agents_md_template` / `default_agents_md_template`. Workspace files
+  `AGENTS.template.md` and `.rustbrain/AGENTS.template.md` are auto-discovered.
 
 ## Ignore files
 

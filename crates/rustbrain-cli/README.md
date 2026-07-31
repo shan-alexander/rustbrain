@@ -8,7 +8,7 @@ Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbra
 
 ```bash
 cargo install rustbrain --locked
-# pin: cargo install rustbrain --version 0.3.3 --locked
+# pin: cargo install rustbrain --version 0.3.4 --locked
 ```
 
 Requires a C toolchain (bundled SQLite + tree-sitter).
@@ -17,19 +17,29 @@ Requires a C toolchain (bundled SQLite + tree-sitter).
 
 ```bash
 cd your-project
-rustbrain setup --yes
+rustbrain setup --yes          # docs + AGENTS.md + sync + doctor
 
-rustbrain note new --type concept --title "Topic" --note "Body for agents." --sync
-rustbrain query "topic" --no-symbols --scores
+# Point coding agents at the generated AGENTS.md (edit or template it org-wide)
+
+rustbrain note new --type concept --title "Topic" --note "Body for agents."
+rustbrain query "topic" --scores
 rustbrain context "explain topic"
 rustbrain links
 ```
+
+### `AGENTS.md`
+
+Written by `setup` / `bootstrap` unless `--no-agents-md`. Customize with:
+
+- `--agents-template PATH`
+- `RUSTBRAIN_AGENTS_TEMPLATE`
+- committed `AGENTS.template.md` or `.rustbrain/AGENTS.template.md`
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `setup` | One-shot init + bootstrap + sync + doctor |
+| `setup` | One-shot init + bootstrap + sync + doctor (`--no-agents-md`, `--agents-template`) |
 | `init` | Create `.brain/db.sqlite` |
 | `bootstrap` | Scaffold docs, `AGENTS.md`, ignore, README harvest, AST map (`--no-agents-md`, `--agents-template`) |
 | `sync` | Index notes + Rust AST; bake CSR mmap |

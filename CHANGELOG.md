@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-07-31
+
+### Documentation
+
+- CLI reference and READMEs fully document **`AGENTS.md` bootstrap** (template
+  resolution order, `--no-agents-md`, `--agents-template`, env var, interactive
+  prompts, library APIs).
+- Version pins and CLI doc header aligned to **0.3.4**.
+- Root README quick start notes that `setup` writes `AGENTS.md` and shows opt-out /
+  custom-template flags.
+
+### Notes
+
+- No functional changes vs 0.3.3 (same AGENTS.md feature set). Prefer `0.3.4` for
+  correct published docs; `0.3.3` already ships the feature.
+
 ## [0.3.3] - 2026-07-31
 
 ### Added
@@ -15,9 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1. `--agents-template PATH` / `BootstrapOptions::agents_template`
   2. env `RUSTBRAIN_AGENTS_TEMPLATE`
   3. workspace `.rustbrain/AGENTS.template.md` or `AGENTS.template.md`
-  4. built-in default ([`default_agents_md_template`])
+  4. built-in default ([`default_agents_md_template`](https://docs.rs/rustbrain-core))
 - **Opt out:** `--no-agents-md` on `bootstrap` and `setup` (interactive bootstrap
   can also decline). Existing `AGENTS.md` is not overwritten without `--force`.
+- Library: `default_agents_md_template()`, `resolve_agents_md_template()`,
+  `BootstrapOptions::{write_agents_md, agents_template}`.
 
 ## [0.3.2] - 2026-07-31
 
