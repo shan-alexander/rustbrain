@@ -79,9 +79,20 @@ pub fn extract_symbol_refs(markdown: &str) -> Vec<SymbolRef> {
             continue;
         }
 
-        // Match "symbol:" case-sensitively as specified in architecture notes.
-        if i + 7 <= bytes.len() && &markdown[i..i + 7] == "symbol:" {
+        // Match "symbol:" via bytes (ASCII) so multi-byte UTF-8 never hits
+        // a mid-char str index (e.g. '→' after `i += 1` through text).
+        if i + 7 <= bytes.len() && &bytes[i..i + 7] == b"symbol:" {
+            // `i` is a char boundary if we only entered here after ASCII
+            // advances or from a boundary; enforce for safety.
+            if !markdown.is_char_boundary(i) {
+                i += 1;
+                continue;
+            }
             let start = i + 7;
+            if !markdown.is_char_boundary(start) {
+                i += 1;
+                continue;
+            }
             let rest = &markdown[start..];
             let end_rel = rest
                 .find(|c: char| {
@@ -94,6 +105,7 @@ pub fn extract_symbol_refs(markdown: &str) -> Vec<SymbolRef> {
                         || c == '\''
                 })
                 .unwrap_or(rest.len());
+            // end_rel is a char boundary by construction of str::find.
             let raw_path = rest[..end_rel].trim_end_matches(['.', '!', '?', ':']);
             if !raw_path.is_empty() {
                 if let Some(sym) = parse_symbol_path(raw_path) {
@@ -219,6 +231,15 @@ mod tests {
         let refs = extract_symbol_refs(md);
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].symbol_name, "Visible");
+    }
+
+    #[test]
+    fn unicode_arrows_do_not_panic() {
+        // Real docs often use '→' (3-byte UTF-8). Byte-stepping must not slice mid-char.
+        let md = "Flow: UI → backend. See symbol:query_json for details.\n";
+        let refs = extract_symbol_refs(md);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].symbol_name, "query_json");
     }
 
     #[test]
