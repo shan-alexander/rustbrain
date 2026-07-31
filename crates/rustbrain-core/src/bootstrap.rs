@@ -1092,7 +1092,8 @@ Types: `goal`, `adr`, `alternative`, `concept`, `analysis`, `reference`, `edge_c
 - **adr** — we chose X
 - **edge_case** — a specific trap
 
-Link code with `symbol:Type::method`.
+Link **notes → code** with `symbol:Type::method` (or `[[symbol:…]]`).
+Link **code → notes** in rustdoc: `/// See [[docs/adr/my-adr]]` (sync creates `doc_links` edges).
 
 ### `links` / `watch` / `export` / `import`
 
@@ -1129,7 +1130,8 @@ Link code with `symbol:Type::method`.
   then edit the created file, then `rustbrain sync`. Passing a full body skips the
   type template and often produces thinner structure.
 - Prefer short factual ADRs over chat logs.
-- Link code: `symbol:Name` / `symbol:crate::mod::Name` / `[[symbol:…]]`.
+- Link notes→code: `symbol:Name` / `symbol:crate::mod::Name` / `[[symbol:…]]`.
+- Link code→notes in rustdoc: `/// See [[docs/adr/…]]` (becomes `doc_links` on sync).
 - Frontmatter when useful:
 
   ```yaml

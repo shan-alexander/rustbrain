@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.10:** rustdoc `[[WikiLinks]]` → symbol→note `doc_links`; analysis notes; scaffold-first notes.  
+> **v0.3.11:** rustdoc `[[WikiLinks]]` → symbol→note `doc_links`; analysis notes; scaffold-first notes.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---
