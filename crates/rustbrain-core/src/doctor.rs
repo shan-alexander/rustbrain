@@ -158,7 +158,7 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
             severity: DoctorSeverity::Info,
             code: "symbol_flood".into(),
             message: format!(
-                "symbol/note ratio high ({symbol_count} symbols / {note_count} notes) — use `query --no-symbols` for human search"
+                "symbol/note ratio high ({symbol_count} symbols / {note_count} notes) — default `query` is note-first; use `--with-symbols` when you need code"
             ),
         });
     }
@@ -202,14 +202,9 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
         });
     }
 
-    // README hub presence
-    if db.get_node("readme")?.is_none() && workspace.join("README.md").is_file() {
-        findings.push(DoctorFinding {
-            severity: DoctorSeverity::Info,
-            code: "readme_not_indexed".into(),
-            message: "README.md exists but hub node `readme` missing — run sync".into(),
-        });
-    }
+    // --- README / harvest / knowledge density (info-level; never invent content) ---
+    assess_readme_and_harvest(&workspace, &db, &mut findings)?;
+    assess_knowledge_density(&workspace, &db, note_count, symbol_count, &mut findings)?;
 
     let has_goal = by_type.iter().any(|(t, c)| t == NodeType::Goal.as_str() && *c > 0);
     if nodes > 0 && !has_goal {
@@ -242,10 +237,20 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
         });
     }
 
+    if !workspace.join("AGENTS.md").is_file() && nodes > 0 {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "no_agents_md".into(),
+            message: "no AGENTS.md — `rustbrain bootstrap --yes --write` can add the agent cookbook (or --no-agents-md to skip intentionally)"
+                .into(),
+        });
+    }
+
     let healthy = !findings
         .iter()
         .any(|f| f.severity == DoctorSeverity::Error);
 
+    // "ok" only when nothing else to report (knowledge infos replace a bare ok).
     if healthy && findings.is_empty() {
         findings.push(DoctorFinding {
             severity: DoctorSeverity::Info,
@@ -270,6 +275,218 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
         findings,
         healthy,
     })
+}
+
+/// Rough non-whitespace content length (chars).
+fn content_mass(s: &str) -> usize {
+    s.chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// Body-ish mass: strip common YAML frontmatter then count.
+fn body_mass(s: &str) -> usize {
+    let t = s.trim_start();
+    let body = if let Some(rest) = t.strip_prefix("---") {
+        if let Some(idx) = rest.find("\n---") {
+            rest[idx + 4..].trim()
+        } else {
+            t
+        }
+    } else {
+        t
+    };
+    content_mass(body)
+}
+
+fn file_body_mass(path: &Path) -> Option<usize> {
+    let text = std::fs::read_to_string(path).ok()?;
+    Some(body_mass(&text))
+}
+
+/// README / from-readme harvest quality (informational only).
+fn assess_readme_and_harvest(
+    workspace: &Path,
+    db: &Database,
+    findings: &mut Vec<DoctorFinding>,
+) -> Result<()> {
+    let readme_path = workspace.join("README.md");
+    let from_readme_path = workspace.join("docs/goals/from-readme.md");
+
+    if !readme_path.is_file() {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "no_readme".into(),
+            message: "no root README.md — bootstrap cannot harvest goals; context relies on docs/ notes, module map, and symbols. Optional: add a short README then `bootstrap --force` + sync"
+                .into(),
+        });
+        if !from_readme_path.is_file() {
+            findings.push(DoctorFinding {
+                severity: DoctorSeverity::Info,
+                code: "no_from_readme".into(),
+                message: "no docs/goals/from-readme.md (expected without README) — write goals under docs/goals/ or add README.md"
+                    .into(),
+            });
+        }
+        return Ok(());
+    }
+
+    // README present
+    let readme_text = std::fs::read_to_string(&readme_path).unwrap_or_default();
+    let readme_mass = body_mass(&readme_text);
+    let content_lines = readme_text
+        .lines()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty() && !t.starts_with('#')
+        })
+        .count();
+
+    // Sparse: very little prose (not a hard error — many valid tiny READMEs exist).
+    const SPARSE_MASS: usize = 120;
+    const SPARSE_LINES: usize = 3;
+    if readme_mass < SPARSE_MASS || content_lines < SPARSE_LINES {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "sparse_readme".into(),
+            message: format!(
+                "README.md is thin (~{readme_mass} non-ws chars, {content_lines} content lines) — from-readme harvest will mirror that; enrich README or write real docs/goals and ADRs for better context"
+            ),
+        });
+    }
+
+    if db.get_node("readme")?.is_none() {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "readme_not_indexed".into(),
+            message: "README.md exists but hub node `readme` missing — run `rustbrain sync`".into(),
+        });
+    }
+
+    if from_readme_path.is_file() {
+        let mass = file_body_mass(&from_readme_path).unwrap_or(0);
+        // Subtract typical boilerplate header roughly by threshold on body.
+        if mass < 180 {
+            findings.push(DoctorFinding {
+                severity: DoctorSeverity::Info,
+                code: "thin_from_readme".into(),
+                message: format!(
+                    "docs/goals/from-readme.md is thin (~{mass} non-ws chars) — harvest only copies README sections; expand README (Why/Features) or add hand-written goals/ADRs"
+                ),
+            });
+        }
+    } else if readme_mass >= SPARSE_MASS {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "no_from_readme".into(),
+            message: "README.md present but no docs/goals/from-readme.md — run `rustbrain bootstrap --yes --write` (or --force) then sync"
+                .into(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Detect bootstrap-scaffold-only brains vs hand-written knowledge.
+fn assess_knowledge_density(
+    workspace: &Path,
+    db: &Database,
+    note_count: usize,
+    symbol_count: usize,
+    findings: &mut Vec<DoctorFinding>,
+) -> Result<()> {
+    if note_count == 0 {
+        return Ok(());
+    }
+
+    // Collect note ids that look like hand-written project knowledge.
+    let mut substantive = 0usize;
+    let mut scaffoldish = 0usize;
+
+    for ty in [
+        NodeType::Goal,
+        NodeType::Adr,
+        NodeType::Concept,
+        NodeType::EdgeCase,
+        NodeType::Reference,
+        NodeType::Alternative,
+    ] {
+        let ids = db.list_node_ids_by_type(ty.as_str())?;
+        for id in ids {
+            if is_hard_scaffold_id(&id) {
+                scaffoldish += 1;
+                continue;
+            }
+            let mass = note_body_mass(workspace, db, &id)?;
+            // Rich README harvest counts as useful knowledge (still generated, but real prose).
+            if id_is_from_readme(&id) {
+                if mass >= 200 {
+                    substantive += 1;
+                } else {
+                    scaffoldish += 1;
+                }
+                continue;
+            }
+            if mass >= 80 {
+                substantive += 1;
+            } else {
+                scaffoldish += 1;
+            }
+        }
+    }
+
+    if substantive == 0 && (scaffoldish > 0 || symbol_count > 0) {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "scaffold_only".into(),
+            message: format!(
+                "notes look bootstrap-scaffold only (stubs/templates/thin harvest); no substantial goals/ADRs/concepts yet — use `note new` or edit docs/; symbols={symbol_count}"
+            ),
+        });
+    } else if substantive > 0 && symbol_count > substantive.saturating_mul(30) {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "knowledge_thin".into(),
+            message: format!(
+                "few substantial notes ({substantive}) vs many symbols ({symbol_count}) — context for *why* may be thin; capture decisions as ADRs"
+            ),
+        });
+    }
+
+    let _ = scaffoldish;
+    Ok(())
+}
+
+fn note_body_mass(workspace: &Path, db: &Database, id: &str) -> Result<usize> {
+    if let Some(c) = db.get_fts_content(id)? {
+        let m = body_mass(&c);
+        if m > 0 {
+            return Ok(m);
+        }
+    }
+    if let Some(node) = db.get_node(id)? {
+        if let Some(path) = node.file_path.as_ref() {
+            return Ok(file_body_mass(&workspace.join(path)).unwrap_or(0));
+        }
+    }
+    Ok(0)
+}
+
+fn id_is_from_readme(id: &str) -> bool {
+    let id = id.to_lowercase();
+    id == "docs/goals/from-readme" || id.contains("from-readme")
+}
+
+/// Pure scaffold: never counts as project knowledge by itself.
+fn is_hard_scaffold_id(id: &str) -> bool {
+    let id = id.to_lowercase();
+    id.contains("template")
+        || id == "docs/goals/readme"
+        || id.ends_with("bootstrap_checklist")
+        || id.contains("bootstrap-checklist")
+        || id.contains("bootstrap_checklist")
+        || id.contains("module-map.generated")
+        || id == "agents"
+        || id.ends_with("/agents")
+        || id == "readme" // root hub is inventory, not a decision record
 }
 
 impl DoctorReport {
@@ -370,6 +587,57 @@ mod tests {
         assert_eq!(
             report.workspace.canonicalize().unwrap(),
             root.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn doctor_reports_no_readme() {
+        let dir = tempdir().unwrap();
+        let mut brain = Brain::create(dir.path()).unwrap();
+        brain.sync().unwrap();
+        let report = run_doctor(dir.path()).unwrap();
+        assert!(
+            report.findings.iter().any(|f| f.code == "no_readme"),
+            "findings={:?}",
+            report.findings
+        );
+        assert!(report.healthy);
+    }
+
+    #[test]
+    fn doctor_reports_sparse_readme() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("README.md"), "# x\n\ntodo\n").unwrap();
+        let mut brain = Brain::create(dir.path()).unwrap();
+        brain.sync().unwrap();
+        let report = run_doctor(dir.path()).unwrap();
+        assert!(
+            report.findings.iter().any(|f| f.code == "sparse_readme"),
+            "findings={:?}",
+            report.findings
+        );
+    }
+
+    #[test]
+    fn doctor_scaffold_only_after_empty_bootstrap_ish() {
+        let dir = tempdir().unwrap();
+        // Minimal notes that look like stubs
+        std::fs::create_dir_all(dir.path().join("docs/adr")).unwrap();
+        std::fs::write(
+            dir.path().join("docs/adr/TEMPLATE.md"),
+            "---\nnode_type: adr\n---\n# ADR template\n\nProposed\n",
+        )
+        .unwrap();
+        let mut brain = Brain::create(dir.path()).unwrap();
+        brain.sync().unwrap();
+        let report = run_doctor(dir.path()).unwrap();
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.code == "scaffold_only" || f.code == "adr_template_only"),
+            "findings={:?}",
+            report.findings
         );
     }
 }

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-07-31
+
+### Improved — doctor (knowledge density, non-presumptuous)
+
+Algorithmic **info** findings when the brain is healthy but thin on prose:
+
+| Code | When |
+|------|------|
+| `no_readme` | No root `README.md` (harvest cannot run) |
+| `sparse_readme` | README very short |
+| `thin_from_readme` | Harvest file exists but little body mass |
+| `no_from_readme` | Expected harvest missing or README absent |
+| `scaffold_only` | Only stubs/templates/thin harvest — no substantial notes |
+| `knowledge_thin` | Few substantial notes vs many symbols |
+| `no_agents_md` | Missing root `AGENTS.md` |
+
+Does **not** invent content or fail the brain for sparse docs. Rich README harvest still counts as useful knowledge.
+
+### Improved — `AGENTS.md` template
+
+Built-in agent cookbook expanded with a **CLI variations table**: what each command does, flags, and expected behavior (`setup`/`bootstrap`/`doctor`/`query`/`context`/`note`/`links`/`watch`/`export`), plus cold-start notes for empty/thin README.
+
 ## [0.3.4] - 2026-07-31
 
 ### Documentation

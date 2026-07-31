@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.4:** bootstrap/setup write configurable root `AGENTS.md` (agent cookbook); full docs.  
+> **v0.3.5:** doctor knowledge-density infos (sparse README/scaffold-only); richer AGENTS.md CLI guide.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---

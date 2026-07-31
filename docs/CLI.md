@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.4)
+# rustbrain CLI reference (v0.3.5)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.4 --locked
+# or pin: cargo install rustbrain --version 0.3.5 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -178,7 +178,17 @@ rustbrain doctor --strict   # exit 1 if unhealthy or pending links
 ```
 
 Walks parents for `.brain`. Findings include empty brain, symbol flood, pending links,
-`adr_template_only`, missing ignore, etc.
+`adr_template_only`, missing ignore, plus **knowledge-density infos** (not failures):
+
+| Code | Meaning |
+|------|---------|
+| `no_readme` / `sparse_readme` | Missing or thin root README (harvest will be empty/thin) |
+| `thin_from_readme` / `no_from_readme` | Harvest quality / presence |
+| `scaffold_only` | Only bootstrap stubs — write real notes for better context |
+| `knowledge_thin` | Few substantial notes vs many symbols |
+| `no_agents_md` | No root agent cookbook |
+
+`status: OK` still means the DB/index is usable; infos guide enrichment, they do not invent docs.
 
 ---
 
