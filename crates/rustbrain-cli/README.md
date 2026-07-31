@@ -8,7 +8,7 @@ Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbra
 
 ```bash
 cargo install rustbrain --locked
-# pin: cargo install rustbrain --version 0.3.8 --locked
+# pin: cargo install rustbrain --version 0.3.9 --locked
 ```
 
 Requires a C toolchain (bundled SQLite + tree-sitter).
@@ -21,7 +21,11 @@ rustbrain setup --yes          # docs + AGENTS.md + sync + doctor
 
 # Point coding agents at the generated AGENTS.md (edit or template it org-wide)
 
-rustbrain note new --type concept --title "Topic" --note "Body for agents."
+# Preferred: type + title only → scaffold → edit the created file → sync
+rustbrain note new --type concept --title "Topic"
+# edit docs/concepts/topic.md, then:
+rustbrain sync
+
 rustbrain query "topic" --scores
 rustbrain context "explain topic"
 rustbrain links
@@ -44,7 +48,7 @@ Written by `setup` / `bootstrap` unless `--no-agents-md`. Customize with:
 | `bootstrap` | Scaffold docs, `AGENTS.md`, ignore, README harvest, AST map (`--no-agents-md`, `--agents-template`) |
 | `sync` | Index notes + Rust AST; bake CSR mmap |
 | `doctor` | Health + orphans (`--orphans`, `--json`, `--strict`) |
-| `note new` | Create note (`--type`, `--title`, `--body`/`--note`) |
+| `note new` | Prefer `--type` + `--title` only (scaffold), then edit file |
 | `links` / `link` | Pending links, or `--auto` soft links (`--auto path.md`) |
 | `query` | Ranked search (`--no-symbols`, `--type`, `--scores`, `--all-workspaces`) |
 | `context` | Agent context (positional/`-p`, excerpts, `--with-symbols`, `--no-hop-symbols`, `-F`) |
@@ -53,16 +57,17 @@ Written by `setup` / `bootstrap` unless `--no-agents-md`. Customize with:
 
 Full flag reference and nuances: **[docs/CLI.md](../../docs/CLI.md)** in the repo.
 
-### Agent tip: `note new`
+### Agent tip: `note new` (scaffold, then edit)
+
+**Preferred:** omit `--body` / `--note` so the type scaffold is written; edit the file; then `sync`.
 
 ```bash
-rustbrain note new \
-  --type adr \
-  --title "Prefer path deps in workspace" \
-  --note "Keeps publish graph simple; only core + CLI on crates.io." \
-  --tags "packaging" \
-  --sync
+rustbrain note new --type adr --title "Prefer path deps in workspace" --tags packaging
+# edit docs/adr/prefer-path-deps-in-workspace.md (Status / Context / Decision / …)
+rustbrain sync
 ```
+
+Use `--body` only when the full text is already finished (skips scaffold).
 
 ### Bootstrap tip: interactive ignore
 

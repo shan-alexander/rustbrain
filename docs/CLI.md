@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.8)
+# rustbrain CLI reference (v0.3.9)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.8 --locked
+# or pin: cargo install rustbrain --version 0.3.9 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -211,11 +211,21 @@ Re-run rebuilds auto edges. Explicit Markdown links remain preferred for hops.
 
 Write a structured Markdown note without opening the editor. Designed for **AI agents**.
 
+### Preferred workflow (scaffold, then edit)
+
+**Better agentic outcomes:** create with **type + title only** (no `--body` / `--note`) so
+rustbrain writes a **type-specific boilerplate**, then **edit the file** that was created,
+then `sync` if needed.
+
 ```bash
-rustbrain note new --type adr --title "Use local SQLite" \
-  --note "Embedded store; no network at runtime."
-# auto-syncs by default; skip with --no-sync
+rustbrain note new --type adr --title "Use local SQLite"
+# → docs/adr/use-local-sqlite.md with Status / Context / Decision / Consequences
+# edit the file, then:
+rustbrain sync
 ```
+
+Passing `--body` or `--note` fills the body immediately and **skips** the scaffold — use that
+when the full text is already finished.
 
 | Flag | Meaning |
 |------|---------|

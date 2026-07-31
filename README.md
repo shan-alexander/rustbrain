@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.8:** first-class `analysis` notes (`docs/analysis/`) for dated investigations.  
+> **v0.3.9:** prefer scaffold-first `note new` (type+title, edit file); analysis notes; AGENTS guidance.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---
@@ -62,16 +62,20 @@ rustbrain setup --yes
 # Or step-by-step:
 # rustbrain init && rustbrain bootstrap --yes --write && rustbrain sync && rustbrain doctor
 
-# Agent-friendly note creation (auto-syncs by default)
-rustbrain note new \
-  --type adr \
-  --title "Use local SQLite" \
-  --note "Embedded store; no network at runtime."
+# Preferred note creation (agents + humans): type + title only → scaffold → edit file
+rustbrain note new --type adr --title "Use local SQLite"
+# → writes docs/adr/use-local-sqlite.md with Status/Context/Decision sections
+# → then edit that file; run sync after edits if you need a re-index
 
 rustbrain query "sqlite" --scores
 rustbrain context "why local sqlite"
 rustbrain links    # pending WikiLinks / symbol: refs
 ```
+
+**Preferred `note new` workflow:** pass `--type` and `--title`, **omit `--body` / `--note`** so
+rustbrain fills a **type-specific scaffold** (`adr`, `goal`, `analysis`, …). Then **edit the
+created file** (path is printed). Re-run `rustbrain sync` after substantial edits.  
+Using `--body`/`--note` is fine when the full text is already ready — it skips the scaffold.
 
 `setup` / `bootstrap` write root **`AGENTS.md`** (how agents should use rustbrain in this repo).
 Template order: `--agents-template` → `RUSTBRAIN_AGENTS_TEMPLATE` → `AGENTS.template.md` /
@@ -94,7 +98,7 @@ See **[docs/CLI.md](docs/CLI.md)** for every flag, ignore dialect, bootstrap out
 | `bootstrap` | Docs tree, `AGENTS.md`, `.rustbrainignore`, README harvest, AST module map |
 | `sync` | Index Markdown / Canvas / Rust; bake `graph.mmap` |
 | `doctor` | Health: pending links, type ratios (`--strict`, `--json`) |
-| `note new` | Typed note (`--type`, `--title`, `--note`, `--sync`) |
+| `note new` | Typed note — prefer `--type` + `--title` only (scaffold), then edit file |
 | `links` | List pending unresolved links |
 | `query <q>` | Ranked FTS (`--no-symbols`, `--type goal,adr`, `--scores`) |
 | `context …` | Agent context (positional or `-p`; note-first; `--with-symbols`) |
@@ -130,9 +134,10 @@ Implemented by symbol:StorageEngine and symbol:demo::crate::StorageEngine::open.
 | `edge_case` | Traps, bugs, platform quirks |
 
 ```bash
-# Pre-decision investigation (e.g. after cargo bench / criterion)
-rustbrain note new --type analysis --title "query path bench 2026-07-31" \
-  --body "Baseline vs patch: p50 -12% cold. See target/criterion/… Artifacts summarized; not an ADR yet."
+# Pre-decision investigation — scaffold first, then fill Findings / Artifacts (e.g. criterion)
+rustbrain note new --type analysis --title "query path bench 2026-07-31"
+# edit docs/analysis/query-path-bench-2026-07-31.md, then:
+rustbrain sync
 ```
 
 - **WikiLinks:** `[[Note]]`, `[[Note#H]]`, `[[Note\|Alias]]` (skipped inside code fences)  

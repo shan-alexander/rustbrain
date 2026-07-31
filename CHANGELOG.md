@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.9] - 2026-07-31
+
+### Documentation — preferred `note new` workflow
+
+- **AGENTS.md** (built-in template) and **README** / **CLI.md** recommend:
+  1. `rustbrain note new --type "…" --title "…"` **without** `--body`/`--note`
+  2. Edit the scaffolded file on disk
+  3. `rustbrain sync` after edits  
+  Passing a full body is still supported but skips type-specific boilerplate; scaffold-first
+  improves agentic structure for `adr` / `goal` / `analysis`.
+
 ## [0.3.8] - 2026-07-31
 
 ### Added — `analysis` node type
