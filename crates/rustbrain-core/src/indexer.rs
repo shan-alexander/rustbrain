@@ -364,19 +364,21 @@ impl WorkspaceIndexer {
                 )?;
             } else {
                 let ext = path.extension().and_then(|e| e.to_str());
-                match ext {
-                    Some("md") => {
-                        self.index_markdown_file(&path, stats)?;
-                    }
+                let result = match ext {
+                    Some("md") => self.index_markdown_file(&path, stats),
                     #[cfg(feature = "obsidian")]
-                    Some("canvas") => {
-                        self.index_canvas_file(&path, stats)?;
-                    }
+                    Some("canvas") => self.index_canvas_file(&path, stats),
                     #[cfg(feature = "ast")]
-                    Some("rs") => {
-                        self.index_rust_file(&path, ast_parser, stats)?;
-                    }
-                    _ => {}
+                    Some("rs") => self.index_rust_file(&path, ast_parser, stats),
+                    _ => Ok(()),
+                };
+                if let Err(e) = result {
+                    // Never abort a full-workspace sync for one bad file.
+                    stats.file_errors += 1;
+                    eprintln!(
+                        "rustbrain: skip {} ({e})",
+                        path.display()
+                    );
                 }
             }
         }

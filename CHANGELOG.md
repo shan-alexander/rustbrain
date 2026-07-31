@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-07-31
+
+### Fixed
+
+- **UTF-8 safe `symbol:` scanning** — indexing no longer panics when notes contain
+  multi-byte characters (e.g. `→`) near symbol refs. Regression test included.
+- **Per-file error isolation on sync** — a single failing Markdown/Rust/Canvas file
+  is skipped and counted in `SyncStats.file_errors` instead of aborting the walk.
+
+### Changed
+
+- CLI `sync` output reports `file_errors=N`.
+
 ## [0.1.0] - 2026-07-30
 
 ### Changed — crates.io packaging

@@ -140,6 +140,8 @@ pub struct SyncStats {
     pub symbol_anchors: usize,
     /// Whether `graph.mmap` was rewritten.
     pub mmap_written: bool,
+    /// Files that failed to index (errors logged; sync continues).
+    pub file_errors: usize,
 }
 
 /// Role of a node inside a context bundle.

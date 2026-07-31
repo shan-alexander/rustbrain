@@ -153,7 +153,7 @@ fn run() -> Result<()> {
             println!("indexing workspace {} ...", brain.workspace().display());
             let stats = brain.sync()?;
             println!(
-                "sync complete: md={} canvas={} rs={} nodes_upserted={} skipped={} edges={} pending={} symbols={} mmap={}",
+                "sync complete: md={} canvas={} rs={} nodes_upserted={} skipped={} edges={} pending={} symbols={} mmap={} file_errors={}",
                 stats.markdown_files,
                 stats.canvas_files,
                 stats.rust_files,
@@ -162,7 +162,8 @@ fn run() -> Result<()> {
                 stats.edges_created,
                 stats.edges_pending,
                 stats.symbol_anchors,
-                stats.mmap_written
+                stats.mmap_written,
+                stats.file_errors
             );
 
             if let Ok(mut reg) = GlobalRegistry::load() {
