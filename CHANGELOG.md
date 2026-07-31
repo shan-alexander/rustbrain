@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-07-31
+
+### Added / UX
+
+- **`note new --body`** — visible alias of `--note` for the body after the H1 title
+  (same field; either flag works).
+- **Tip after `sync`, `doctor`, `setup`, and `rustbrain --help`** — recommended first
+  goal example:
+
+  ```bash
+  rustbrain note new --type goal --title "Use rustbrain well" \
+    --body "Prefer rustbrain context/query before large refactors. …"
+  ```
+
 ## [0.3.5] - 2026-07-31
 
 ### Improved — doctor (knowledge density, non-presumptuous)

@@ -23,11 +23,35 @@ use std::process::ExitCode;
 #[command(
     about = "Project-scoped, Rust-first second-brain knowledge engine for engineers and AI agents",
     long_about = None,
-    version
+    version,
+    after_help = AFTER_HELP
 )]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+/// Shown under `rustbrain --help` and after common commands.
+const AFTER_HELP: &str = "\
+Examples:
+  rustbrain setup --yes
+  rustbrain sync
+  rustbrain doctor
+  rustbrain context \"why <decision>\"
+  rustbrain query \"topic\" --scores
+
+Recommended first goal (body goes after the H1 title; --body and --note are the same):
+  rustbrain note new --type goal --title \"Use rustbrain well\" \\
+    --body \"Prefer rustbrain context/query before large refactors. Capture decisions with note new --type adr. Run sync after doc/code changes. Keep docs truthful — do not invent ADR history.\"
+";
+
+fn print_note_tip() {
+    eprintln!(
+        "\
+tip: write a goal into the brain (title = H1; --body/--note = body after it):
+  rustbrain note new --type goal --title \"Use rustbrain well\" \\
+    --body \"Prefer rustbrain context/query before large refactors. Capture decisions with note new --type adr. Run sync after doc/code changes. Keep docs truthful — do not invent ADR history.\""
+    );
 }
 
 #[derive(Subcommand)]
@@ -234,11 +258,11 @@ enum NoteCmd {
         /// Node type: goal, adr, alternative, concept, reference, edge_case
         #[arg(long, value_name = "TYPE")]
         r#type: String,
-        /// Title (H1 + filename slug)
+        /// Title (becomes the Markdown H1 + filename slug)
         #[arg(long)]
         title: String,
-        /// Body text after the title (efficient for AI agents)
-        #[arg(long)]
+        /// Body text after the H1 title (alias: `--body`)
+        #[arg(long = "note", visible_alias = "body", value_name = "TEXT")]
         note: Option<String>,
         /// Comma-separated tags
         #[arg(long)]
@@ -351,7 +375,8 @@ fn run() -> Result<ExitCode> {
                     return Ok(ExitCode::FAILURE);
                 }
             }
-            println!("setup: done — try `rustbrain context \"topic\" -F markdown`");
+            println!("setup: done — try `rustbrain context \"topic\"`");
+            print_note_tip();
             Ok(ExitCode::SUCCESS)
         }
         Commands::Bootstrap {
@@ -423,6 +448,7 @@ fn run() -> Result<ExitCode> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print!("{}", report.to_text());
+                print_note_tip();
             }
             let fail = !report.healthy || (strict && report.pending_links > 0);
             Ok(if fail {
@@ -546,6 +572,7 @@ fn run() -> Result<ExitCode> {
             if let Ok(mut reg) = GlobalRegistry::load() {
                 let _ = reg.register(brain.workspace());
             }
+            print_note_tip();
             Ok(ExitCode::SUCCESS)
         }
         Commands::Query {

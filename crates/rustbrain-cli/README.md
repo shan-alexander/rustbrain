@@ -8,7 +8,7 @@ Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbra
 
 ```bash
 cargo install rustbrain --locked
-# pin: cargo install rustbrain --version 0.3.5 --locked
+# pin: cargo install rustbrain --version 0.3.6 --locked
 ```
 
 Requires a C toolchain (bundled SQLite + tree-sitter).

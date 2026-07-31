@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.5)
+# rustbrain CLI reference (v0.3.6)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.5 --locked
+# or pin: cargo install rustbrain --version 0.3.6 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -205,11 +205,18 @@ rustbrain note new --type adr --title "Use local SQLite" \
 | Flag | Meaning |
 |------|---------|
 | `--type` | `goal`, `adr`, `concept`, `edge_case`, … |
-| `--title` | H1 + filename slug |
-| `--note` | Body after title |
+| `--title` | Becomes the Markdown **H1** + filename slug |
+| `--note` / **`--body`** | Body text **after** the H1 (aliases of each other) |
 | `--tags` / `--aliases` | Comma-separated |
 | `--no-sync` | Do not index after write |
 | `--force` | Overwrite existing file |
+
+Example (also shown after `sync` / `doctor` / `--help`):
+
+```bash
+rustbrain note new --type goal --title "Use rustbrain well" \
+  --body "Prefer rustbrain context/query before large refactors. Capture decisions with note new --type adr. Run sync after doc/code changes. Keep docs truthful — do not invent ADR history."
+```
 
 ---
 
