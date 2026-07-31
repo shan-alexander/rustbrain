@@ -12,8 +12,9 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use rustbrain_core::{
-    bootstrap_workspace, create_note, run_doctor, BootstrapMode, BootstrapOptions, Brain,
-    GlobalRegistry, NoteNewOptions, NodeType, QueryOptions,
+    bootstrap_workspace, create_note, normalize_target_arg, run_doctor, run_doctor_with,
+    BootstrapMode, BootstrapOptions, Brain, DoctorOptions, GlobalRegistry, NoteNewOptions,
+    NodeType, QueryOptions,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -119,7 +120,7 @@ enum Commands {
         #[arg(long, value_name = "PATH")]
         agents_template: Option<PathBuf>,
     },
-    /// Health check: pending links, ratios, schema
+    /// Health check: pending links, ratios, schema, orphans
     Doctor {
         /// Workspace root
         #[arg(default_value = ".")]
@@ -130,20 +131,30 @@ enum Commands {
         /// Exit 1 when unhealthy or when pending links exist
         #[arg(long, default_value_t = false)]
         strict: bool,
+        /// Detailed orphan analysis (also: `--orphan`)
+        #[arg(long = "orphans", visible_alias = "orphan", default_value_t = false)]
+        orphans: bool,
     },
     /// Create structured Markdown notes
     Note {
         #[command(subcommand)]
         cmd: NoteCmd,
     },
-    /// List unresolved WikiLink / symbol targets
+    /// Pending unresolved links, or soft auto-links (`--auto`)
+    #[command(visible_alias = "link")]
     Links {
         /// Workspace root
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
-        /// Only show pending (default true)
-        #[arg(long, default_value_t = true)]
+        /// List pending WikiLink / symbol targets (default when not using --auto)
+        #[arg(long, default_value_t = false)]
         pending: bool,
+        /// Create soft auto-links (filename stem + shared tags)
+        #[arg(long, default_value_t = false)]
+        auto: bool,
+        /// Optional path or node id to auto-link (e.g. docs/goals/foo.md)
+        #[arg(value_name = "TARGET")]
+        target: Option<PathBuf>,
         /// JSON output
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -442,13 +453,21 @@ fn run() -> Result<ExitCode> {
             workspace,
             json,
             strict,
+            orphans,
         } => {
-            let report = run_doctor(&workspace)?;
+            let report = run_doctor_with(
+                &workspace,
+                &DoctorOptions {
+                    detail_orphans: orphans,
+                },
+            )?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print!("{}", report.to_text());
-                print_note_tip();
+                if !orphans {
+                    print_note_tip();
+                }
             }
             let fail = !report.healthy || (strict && report.pending_links > 0);
             Ok(if fail {
@@ -525,28 +544,65 @@ fn run() -> Result<ExitCode> {
         Commands::Links {
             workspace,
             pending,
+            auto,
+            target,
             json,
         } => {
+            if auto {
+                let mut brain = Brain::open(&workspace).with_context(|| {
+                    format!(
+                        "no brain found at {} or parents. run `rustbrain setup --yes`",
+                        workspace.display()
+                    )
+                })?;
+                let target = target.map(|p| normalize_target_arg(&p.to_string_lossy()));
+                let report = brain.auto_link(target.as_deref())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "auto-link complete: scope={} pairs≈{} edges_upserted={}",
+                        report.scope, report.pairs_considered, report.edges_upserted
+                    );
+                    if report.applied.is_empty() {
+                        println!("no soft links created (need matching filename stems and/or shared tags)");
+                    } else {
+                        println!("sample applied (up to 50):");
+                        for s in &report.applied {
+                            let tp = s.target_path.as_deref().unwrap_or("-");
+                            println!(
+                                "  [{} w={:.2}] {} → {} ({})",
+                                s.relation_type, s.weight, s.reason, s.target_id, tp
+                            );
+                        }
+                    }
+                    println!("tip: soft links are `auto_*` edges (low weight). Explicit WikiLinks stay preferred.");
+                    println!("     re-check orphans: `rustbrain doctor --orphans`");
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
+
             let brain = Brain::open(&workspace).with_context(|| {
                 format!(
                     "database not found under {}. run `rustbrain sync` first",
                     workspace.display()
                 )
             })?;
-            if pending {
-                let list = brain.database().list_pending_links()?;
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&list)?);
-                } else if list.is_empty() {
-                    println!("no pending links");
-                } else {
-                    println!("{} pending link(s):", list.len());
-                    for p in &list {
-                        println!(
-                            "  {} -[{}]-> {}",
-                            p.source_id, p.relation_type, p.raw_target
-                        );
-                    }
+            // Default behaviour: list pending unresolved links.
+            let _ = pending; // accepted; pending list is the default non-auto mode
+            let list = brain.database().list_pending_links()?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&list)?);
+            } else if list.is_empty() {
+                println!("no pending links");
+                println!("tip: soft-link orphans with `rustbrain links --auto` (or `rustbrain link --auto`)");
+            } else {
+                println!("{} pending link(s):", list.len());
+                for p in &list {
+                    println!(
+                        "  {} -[{}]-> {}",
+                        p.source_id, p.relation_type, p.raw_target
+                    );
                 }
             }
             Ok(ExitCode::SUCCESS)

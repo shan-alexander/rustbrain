@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.6:** `note new --body` alias; tip after sync/doctor/help with a sample goal note.  
+> **v0.3.7:** orphan detection in doctor; soft auto-links via `links --auto` (filename + tags).  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---

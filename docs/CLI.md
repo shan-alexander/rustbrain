@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.6)
+# rustbrain CLI reference (v0.3.7)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.6 --locked
+# or pin: cargo install rustbrain --version 0.3.7 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -174,14 +174,16 @@ Reports `file_errors=N` when individual files fail (does not abort the whole wal
 ```bash
 rustbrain doctor
 rustbrain doctor --json
-rustbrain doctor --strict   # exit 1 if unhealthy or pending links
+rustbrain doctor --strict     # exit 1 if unhealthy or pending links
+rustbrain doctor --orphans    # detailed orphan analysis (alias: --orphan)
 ```
 
-Walks parents for `.brain`. Findings include empty brain, symbol flood, pending links,
-`adr_template_only`, missing ignore, plus **knowledge-density infos** (not failures):
+Walks parents for `.brain`. Summary line includes `orphans=N` when **N > 0**
+(notes with no **explicit** WikiLink/`symbol:` edges; soft `auto_*` links do not count).
 
 | Code | Meaning |
 |------|---------|
+| `orphan_notes` | Count of orphans — see `doctor --orphans` or `links --auto` |
 | `no_readme` / `sparse_readme` | Missing or thin root README (harvest will be empty/thin) |
 | `thin_from_readme` / `no_from_readme` | Harvest quality / presence |
 | `scaffold_only` | Only bootstrap stubs — write real notes for better context |
@@ -189,6 +191,19 @@ Walks parents for `.brain`. Findings include empty brain, symbol flood, pending 
 | `no_agents_md` | No root agent cookbook |
 
 `status: OK` still means the DB/index is usable; infos guide enrichment, they do not invent docs.
+
+### Soft auto-links
+
+```bash
+rustbrain links --auto                      # all notes: filename stem + shared tags
+rustbrain link --auto                       # synonym of links
+rustbrain links --auto docs/goals/foo.md    # one note
+rustbrain links --auto --json
+```
+
+Creates low-weight edges (`auto_filename` ~0.4, `auto_tag` ~0.25). Same basename under
+different folders (e.g. `goals/rust-fluency.md` and `concepts/rust-fluency.md`) is linked.
+Re-run rebuilds auto edges. Explicit Markdown links remain preferred for hops.
 
 ---
 

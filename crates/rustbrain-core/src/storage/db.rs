@@ -199,6 +199,22 @@ impl Database {
         Ok(())
     }
 
+    /// Delete all soft auto-edges (`relation_type` like `auto_%`).
+    pub fn clear_all_auto_edges(&self) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM edges WHERE relation_type LIKE 'auto_%'", [])?;
+        Ok(())
+    }
+
+    /// Delete soft auto-edges where `node_id` is source or target.
+    pub fn clear_auto_edges_involving(&self, node_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM edges WHERE relation_type LIKE 'auto_%' AND (source_id = ?1 OR target_id = ?1)",
+            [node_id],
+        )?;
+        Ok(())
+    }
+
     /// Insert or update a code symbol anchor row (AST metadata).
     #[cfg(feature = "ast")]
     pub fn insert_symbol_anchor(&self, anchor: &SymbolAnchor) -> Result<()> {

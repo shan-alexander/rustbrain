@@ -53,20 +53,37 @@ pub struct DoctorReport {
     pub pending_links: usize,
     /// Symbol anchors.
     pub symbol_anchors: usize,
+    /// Notes with no **explicit** edges (auto-links ignored).
+    pub orphan_notes: usize,
     /// Breakdown by node type.
     pub by_type: Vec<(String, usize)>,
     /// Pending link samples (up to 50).
     pub pending: Vec<PendingLink>,
+    /// Detailed orphan list when [`DoctorOptions::detail_orphans`] is set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub orphan_details: Vec<crate::autolink::OrphanNote>,
     /// Findings.
     pub findings: Vec<DoctorFinding>,
     /// True when any finding is Error (or pending policy fail).
     pub healthy: bool,
 }
 
+/// Options for [`run_doctor_with`].
+#[derive(Debug, Clone, Default)]
+pub struct DoctorOptions {
+    /// Include full orphan list + suggestions in the report.
+    pub detail_orphans: bool,
+}
+
 /// Run doctor against a workspace (opens DB if present).
 ///
 /// Walks parent directories for `.brain/db.sqlite` (same as [`crate::Brain::open`]).
 pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
+    run_doctor_with(workspace, &DoctorOptions::default())
+}
+
+/// Doctor with options (e.g. detailed orphan analysis).
+pub fn run_doctor_with(workspace: &Path, opts: &DoctorOptions) -> Result<DoctorReport> {
     let start = workspace
         .canonicalize()
         .unwrap_or_else(|_| workspace.to_path_buf());
@@ -95,8 +112,10 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
             fts_rows: 0,
             pending_links: 0,
             symbol_anchors: 0,
+            orphan_notes: 0,
             by_type: vec![],
             pending: vec![],
+            orphan_details: vec![],
             healthy: false,
             findings,
         });
@@ -246,6 +265,24 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
         });
     }
 
+    let orphan_list = crate::autolink::list_orphan_notes(&db)?;
+    let orphan_notes = orphan_list.len();
+    if orphan_notes > 0 {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "orphan_notes".into(),
+            message: format!(
+                "{orphan_notes} orphan note(s) (no explicit links) — run `rustbrain doctor --orphans` for details, or `rustbrain links --auto` to create soft auto-links"
+            ),
+        });
+    }
+
+    let orphan_details = if opts.detail_orphans {
+        orphan_list
+    } else {
+        vec![]
+    };
+
     let healthy = !findings
         .iter()
         .any(|f| f.severity == DoctorSeverity::Error);
@@ -270,8 +307,10 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
         fts_rows,
         pending_links,
         symbol_anchors,
+        orphan_notes,
         by_type,
         pending,
+        orphan_details,
         findings,
         healthy,
     })
@@ -503,9 +542,13 @@ impl DoctorReport {
                 .unwrap_or_else(|| "-".into())
         ));
         out.push_str(&format!(
-            "  nodes={} edges={} fts={} pending={} symbols={}\n",
+            "  nodes={} edges={} fts={} pending={} symbols={}",
             self.nodes, self.edges, self.fts_rows, self.pending_links, self.symbol_anchors
         ));
+        if self.orphan_notes > 0 {
+            out.push_str(&format!(" orphans={}", self.orphan_notes));
+        }
+        out.push('\n');
         if !self.by_type.is_empty() {
             out.push_str("  by type: ");
             let parts: Vec<_> = self
@@ -524,6 +567,31 @@ impl DoctorReport {
                 DoctorSeverity::Error => "ERR ",
             };
             out.push_str(&format!("  [{tag}] {}: {}\n", f.code, f.message));
+        }
+        if !self.orphan_details.is_empty() {
+            out.push_str("\norphan notes (no explicit WikiLink/symbol edges; auto-links ignored):\n");
+            for o in &self.orphan_details {
+                let path = o.file_path.as_deref().unwrap_or("-");
+                out.push_str(&format!(
+                    "  • [{}] {} (id: {})\n    path: {}\n",
+                    o.node_type, o.title, o.id, path
+                ));
+                if o.suggestions.is_empty() {
+                    out.push_str("    suggestions: (none — add tags, matching filenames, or WikiLinks)\n");
+                } else {
+                    out.push_str("    suggestions:\n");
+                    for s in o.suggestions.iter().take(8) {
+                        let tp = s.target_path.as_deref().unwrap_or("-");
+                        out.push_str(&format!(
+                            "      - [{} w={:.2}] {} → {} ({})\n",
+                            s.relation_type, s.weight, s.reason, s.target_id, tp
+                        ));
+                    }
+                }
+            }
+            out.push_str(
+                "\n  apply soft links: `rustbrain links --auto`\n  one file: `rustbrain links --auto docs/goals/foo.md`\n",
+            );
         }
         if !self.pending.is_empty() {
             out.push_str("\npending links (up to 50):\n");
@@ -616,6 +684,35 @@ mod tests {
             "findings={:?}",
             report.findings
         );
+    }
+
+    #[test]
+    fn doctor_counts_orphans_and_details() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("docs/concepts")).unwrap();
+        std::fs::write(
+            dir.path().join("docs/concepts/lonely.md"),
+            "---\nnode_type: concept\n---\n# Lonely\n\nNo links here.\n",
+        )
+        .unwrap();
+        let mut brain = Brain::create(dir.path()).unwrap();
+        brain.sync().unwrap();
+        let report = run_doctor(dir.path()).unwrap();
+        assert!(report.orphan_notes >= 1, "orphan_notes={}", report.orphan_notes);
+        assert!(report.findings.iter().any(|f| f.code == "orphan_notes"));
+
+        let detailed = run_doctor_with(
+            dir.path(),
+            &DoctorOptions {
+                detail_orphans: true,
+            },
+        )
+        .unwrap();
+        assert!(!detailed.orphan_details.is_empty());
+        assert!(detailed
+            .orphan_details
+            .iter()
+            .any(|o| o.id.contains("lonely")));
     }
 
     #[test]

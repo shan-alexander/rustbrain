@@ -8,7 +8,7 @@ Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbra
 
 ```bash
 cargo install rustbrain --locked
-# pin: cargo install rustbrain --version 0.3.6 --locked
+# pin: cargo install rustbrain --version 0.3.7 --locked
 ```
 
 Requires a C toolchain (bundled SQLite + tree-sitter).
@@ -43,9 +43,9 @@ Written by `setup` / `bootstrap` unless `--no-agents-md`. Customize with:
 | `init` | Create `.brain/db.sqlite` |
 | `bootstrap` | Scaffold docs, `AGENTS.md`, ignore, README harvest, AST map (`--no-agents-md`, `--agents-template`) |
 | `sync` | Index notes + Rust AST; bake CSR mmap |
-| `doctor` | Health + pending links (`--json`, `--strict`) |
-| `note new` | Create note (`--type`, `--title`, `--note`, `--sync`) |
-| `links` | List pending unresolved links |
+| `doctor` | Health + orphans (`--orphans`, `--json`, `--strict`) |
+| `note new` | Create note (`--type`, `--title`, `--body`/`--note`) |
+| `links` / `link` | Pending links, or `--auto` soft links (`--auto path.md`) |
 | `query` | Ranked search (`--no-symbols`, `--type`, `--scores`, `--all-workspaces`) |
 | `context` | Agent context (positional/`-p`, excerpts, `--with-symbols`, `--no-hop-symbols`, `-F`) |
 | `watch` | Debounced live re-index |

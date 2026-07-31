@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] - 2026-07-31
+
+### Added — orphans + soft auto-links (P0/P1)
+
+- **`doctor` orphan count** — `orphans=N` in summary and finding `orphan_notes` when
+  notes have **no explicit** edges (`auto_*` ignored). Hidden when count is 0.
+- **`doctor --orphans` / `--orphan`** — detailed list with soft-link **suggestions**
+  (filename stem + shared tags) without writing edges.
+- **`links --auto` / `link --auto`** — create low-weight soft edges:
+  - `auto_filename` (e.g. `docs/goals/rust-fluency.md` ↔ `docs/concepts/rust-fluency.md`)
+  - `auto_tag` (shared non-trivial tags)
+- **Targeted auto-link:** `rustbrain links --auto docs/goals/foo.md` (or node id).
+- Soft edges are re-built on full `--auto`; do not count as explicit for orphan status.
+- Library: `list_orphan_notes`, `run_auto_link`, `Brain::list_orphans` / `auto_link`.
+
 ## [0.3.6] - 2026-07-31
 
 ### Added / UX

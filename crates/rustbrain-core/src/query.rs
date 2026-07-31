@@ -243,7 +243,8 @@ impl Database {
         Ok(hits)
     }
 
-    fn get_tags_for(&self, node_id: &str) -> Result<Vec<String>> {
+    /// Tags attached to a node (empty if none).
+    pub fn get_tags_for(&self, node_id: &str) -> Result<Vec<String>> {
         let mut stmt = self
             .conn
             .prepare("SELECT tag FROM node_tags WHERE node_id = ?1")?;

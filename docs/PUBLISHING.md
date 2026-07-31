@@ -31,7 +31,7 @@ cargo publish -p rustbrain
 ## GitHub
 
 ```bash
-git tag -a v0.3.6 -m "v0.3.6"
+git tag -a v0.3.7 -m "v0.3.7"
 git push origin main --tags
 ```
 
@@ -43,5 +43,5 @@ rustbrain-core = "0.3"
 
 ```bash
 cargo install rustbrain --locked
-# pin: cargo install rustbrain --version 0.3.6 --locked
+# pin: cargo install rustbrain --version 0.3.7 --locked
 ```

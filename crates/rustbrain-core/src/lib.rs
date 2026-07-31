@@ -41,6 +41,7 @@
 
 #[cfg(feature = "ast")]
 pub mod ast;
+pub mod autolink;
 pub mod bootstrap;
 pub mod brain;
 pub mod context;
@@ -63,6 +64,11 @@ pub mod symbols;
 pub mod types;
 pub mod watch;
 
+pub use autolink::{
+    is_auto_relation, is_explicit_relation, list_orphan_notes, normalize_target_arg, path_stem,
+    run_auto_link, AutoLinkReport, AutoLinkSuggestion, OrphanNote, REL_AUTO_FILENAME,
+    REL_AUTO_TAG, WEIGHT_AUTO_FILENAME, WEIGHT_AUTO_TAG,
+};
 pub use bootstrap::{
     bootstrap_noninteractive, bootstrap_workspace, default_agents_md_template,
     resolve_agents_md_template, BootstrapAction, BootstrapMode, BootstrapOptions, BootstrapReport,
@@ -70,7 +76,7 @@ pub use bootstrap::{
 pub use brain::{find_brain_dir, Brain};
 pub use context::ContextOptions;
 pub use fts::{is_generic_topic, prepare_search_query, tokenize_query, PreparedQuery};
-pub use doctor::{run_doctor, DoctorFinding, DoctorReport, DoctorSeverity};
+pub use doctor::{run_doctor, run_doctor_with, DoctorFinding, DoctorOptions, DoctorReport, DoctorSeverity};
 pub use error::{BrainError, Result};
 pub use exporter::{BrainExporter, BrainImporter, PortableBrainBundle, BUNDLE_VERSION};
 pub use ignore::{recommended_ignore_extras, write_rustbrainignore, IgnoreSet};

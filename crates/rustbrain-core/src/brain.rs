@@ -260,6 +260,31 @@ impl Brain {
     pub fn note_new(&self, opts: &crate::note::NoteNewOptions) -> Result<crate::note::NoteCreated> {
         crate::note::create_note(&self.workspace, opts)
     }
+
+    /// Notes with no explicit graph edges (soft `auto_*` edges do not count).
+    pub fn list_orphans(&self) -> Result<Vec<crate::autolink::OrphanNote>> {
+        crate::autolink::list_orphan_notes(&self.db)
+    }
+
+    /// Create soft auto-links (filename stem + shared tags). Optional path focuses one note.
+    ///
+    /// Recompiles `graph.mmap` when the `mmap` feature is enabled.
+    pub fn auto_link(
+        &mut self,
+        target: Option<&std::path::Path>,
+    ) -> Result<crate::autolink::AutoLinkReport> {
+        let report = crate::autolink::run_auto_link(&self.db, target)?;
+        #[cfg(feature = "mmap")]
+        {
+            let indexer = WorkspaceIndexer::new(
+                Database::open(self.brain_dir.join("db.sqlite"))?,
+                self.workspace.clone(),
+            );
+            let _ = indexer.compile_mmap(&self.brain_dir.join("graph.mmap"));
+            self.db = Database::open(self.brain_dir.join("db.sqlite"))?;
+        }
+        Ok(report)
+    }
 }
 
 fn canonicalize_or_owned(path: &Path) -> Result<PathBuf> {
