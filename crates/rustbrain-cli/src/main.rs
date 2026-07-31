@@ -55,6 +55,12 @@ enum Commands {
         /// Skip bootstrap (only init + sync)
         #[arg(long, default_value_t = false)]
         no_bootstrap: bool,
+        /// Do not write root AGENTS.md during bootstrap
+        #[arg(long, default_value_t = false)]
+        no_agents_md: bool,
+        /// Custom AGENTS.md template file (overrides AGENTS.template.md / built-in)
+        #[arg(long, value_name = "PATH")]
+        agents_template: Option<PathBuf>,
     },
     /// Deterministic docs/ignore bootstrap for mature repositories
     Bootstrap {
@@ -82,6 +88,12 @@ enum Commands {
         /// Do not import .gitignore
         #[arg(long, default_value_t = false)]
         no_import_gitignore: bool,
+        /// Do not write root AGENTS.md
+        #[arg(long, default_value_t = false)]
+        no_agents_md: bool,
+        /// Custom AGENTS.md template file (overrides AGENTS.template.md / built-in)
+        #[arg(long, value_name = "PATH")]
+        agents_template: Option<PathBuf>,
     },
     /// Health check: pending links, ratios, schema
     Doctor {
@@ -286,6 +298,8 @@ fn run() -> Result<ExitCode> {
             force,
             no_doctor,
             no_bootstrap,
+            no_agents_md,
+            agents_template,
         } => {
             let _ = yes; // always non-interactive for setup
             let brain = Brain::create(&workspace)
@@ -309,6 +323,8 @@ fn run() -> Result<ExitCode> {
                     harvest_readme: true,
                     module_map: true,
                     scaffold_docs: true,
+                    write_agents_md: Some(!no_agents_md),
+                    agents_template,
                 };
                 let report = bootstrap_workspace(&workspace, opts)?;
                 for a in &report.actions {
@@ -347,6 +363,8 @@ fn run() -> Result<ExitCode> {
             no_ignore,
             import_gitignore,
             no_import_gitignore,
+            no_agents_md,
+            agents_template,
         } => {
             let write = if dry_run { false } else { write || yes };
             let mode = if yes {
@@ -363,6 +381,13 @@ fn run() -> Result<ExitCode> {
             } else {
                 None // interactive may ask
             };
+            let write_agents = if no_agents_md {
+                Some(false)
+            } else if yes {
+                Some(true)
+            } else {
+                None // interactive may ask
+            };
             let opts = BootstrapOptions {
                 mode,
                 write,
@@ -373,6 +398,8 @@ fn run() -> Result<ExitCode> {
                 harvest_readme: true,
                 module_map: true,
                 scaffold_docs: true,
+                write_agents_md: write_agents,
+                agents_template,
             };
             let report = bootstrap_workspace(&workspace, opts)?;
             for a in &report.actions {

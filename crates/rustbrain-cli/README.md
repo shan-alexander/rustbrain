@@ -8,7 +8,7 @@ Command-line interface for [rustbrain](https://github.com/shan-alexander/rustbra
 
 ```bash
 cargo install rustbrain --locked
-# pin: cargo install rustbrain --version 0.3.2 --locked
+# pin: cargo install rustbrain --version 0.3.3 --locked
 ```
 
 Requires a C toolchain (bundled SQLite + tree-sitter).
@@ -31,7 +31,7 @@ rustbrain links
 |---------|-------------|
 | `setup` | One-shot init + bootstrap + sync + doctor |
 | `init` | Create `.brain/db.sqlite` |
-| `bootstrap` | Scaffold docs, ignore file, README harvest, AST map (`--yes`, `--write`, `--force`) |
+| `bootstrap` | Scaffold docs, `AGENTS.md`, ignore, README harvest, AST map (`--no-agents-md`, `--agents-template`) |
 | `sync` | Index notes + Rust AST; bake CSR mmap |
 | `doctor` | Health + pending links (`--json`, `--strict`) |
 | `note new` | Create note (`--type`, `--title`, `--note`, `--sync`) |

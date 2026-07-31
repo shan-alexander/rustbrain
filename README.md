@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.2:** doctor parent-walk, ADR-first packing, body-only excerpts, markdown context default.  
+> **v0.3.3:** bootstrap writes configurable `AGENTS.md` (agent cookbook); `--no-agents-md` to skip.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---
@@ -84,7 +84,7 @@ See **[docs/CLI.md](docs/CLI.md)** for every flag, ignore dialect, bootstrap out
 |---------|---------|
 | `setup` | One-shot init + bootstrap + sync + doctor |
 | `init` | Create `.brain/db.sqlite` |
-| `bootstrap` | Docs tree, `.rustbrainignore`, README harvest, AST module map |
+| `bootstrap` | Docs tree, `AGENTS.md`, `.rustbrainignore`, README harvest, AST module map |
 | `sync` | Index Markdown / Canvas / Rust; bake `graph.mmap` |
 | `doctor` | Health: pending links, type ratios (`--strict`, `--json`) |
 | `note new` | Typed note (`--type`, `--title`, `--note`, `--sync`) |

@@ -64,8 +64,8 @@ pub mod types;
 pub mod watch;
 
 pub use bootstrap::{
-    bootstrap_noninteractive, bootstrap_workspace, BootstrapAction, BootstrapMode,
-    BootstrapOptions, BootstrapReport,
+    bootstrap_noninteractive, bootstrap_workspace, default_agents_md_template,
+    resolve_agents_md_template, BootstrapAction, BootstrapMode, BootstrapOptions, BootstrapReport,
 };
 pub use brain::{find_brain_dir, Brain};
 pub use context::ContextOptions;

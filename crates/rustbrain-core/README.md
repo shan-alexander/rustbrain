@@ -86,6 +86,8 @@ fn main() -> Result<()> {
 - **`ContextOptions`** defaults to note-first seeds + body excerpts; **`hop_to_symbols`** (default `true`) still packs useful ADR → code neighbors.
 - Root **`README.md`** becomes hub node id `readme` (type `goal` unless frontmatter overrides).
 - **`Brain::open`** walks parents for `.brain` (use `open_exact` for a fixed path).
+- **Bootstrap** writes root `AGENTS.md` by default (`write_agents_md`, `agents_template`,
+  or workspace `AGENTS.template.md`).
 
 ## Ignore files
 

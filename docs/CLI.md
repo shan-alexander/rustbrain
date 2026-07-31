@@ -40,9 +40,11 @@ rustbrain setup --yes
 rustbrain setup --yes --force          # overwrite generated bootstrap files
 rustbrain setup --yes --no-doctor
 rustbrain setup --yes --no-bootstrap   # init + sync only
+rustbrain setup --yes --no-agents-md   # skip AGENTS.md
+rustbrain setup --yes --agents-template ./AGENTS.template.md
 ```
 
-Always non-interactive. Preferred entry point for agents and CI.
+Always non-interactive. Preferred entry point for agents and CI. Writes `AGENTS.md` by default.
 
 ---
 
@@ -92,6 +94,8 @@ rustbrain bootstrap --yes --write --force
 | `--no-ignore` | Skip `.rustbrainignore` setup |
 | `--import-gitignore` | Force import root `.gitignore` into ignore file |
 | `--no-import-gitignore` | Never import `.gitignore` |
+| `--no-agents-md` | Do not write root `AGENTS.md` |
+| `--agents-template PATH` | Use this file as `AGENTS.md` content |
 
 ### What it writes
 
@@ -103,8 +107,18 @@ rustbrain bootstrap --yes --write --force
 | `docs/BOOTSTRAP_CHECKLIST.md` | Promote drafts → real knowledge |
 | `docs/goals/from-readme.md` | Harvested from root `README.md` (`generated: true`) |
 | `docs/implementation/module-map.generated.md` | AST symbol list with `symbol:…` refs (`generated: true`) |
+| `AGENTS.md` | Agent cookbook for this repo (customizable; see below) |
 | `.rustbrainignore` | Extra index skips (optional import of `.gitignore`) |
 | `.brain/db.sqlite` | Created if missing |
+
+### Customizing `AGENTS.md`
+
+1. `rustbrain bootstrap --agents-template ./my-agents.md`
+2. `export RUSTBRAIN_AGENTS_TEMPLATE=/path/to/template.md`
+3. Commit `AGENTS.template.md` or `.rustbrain/AGENTS.template.md` in the repo
+4. Built-in default from rustbrain (agent loop + conventions)
+
+Skip with `--no-agents-md`. Re-write with `--force` if `AGENTS.md` already exists.
 
 ### Interactive prompts (TTY, without `--yes`)
 

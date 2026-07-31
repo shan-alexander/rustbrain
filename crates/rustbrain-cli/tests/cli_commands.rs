@@ -33,6 +33,9 @@ fn bootstrap_doctor_note_query_filters() {
     assert!(root.join(".rustbrainignore").is_file());
     assert!(root.join("docs/goals/from-readme.md").is_file());
     assert!(root.join("docs/adr/TEMPLATE.md").is_file());
+    assert!(root.join("AGENTS.md").is_file());
+    let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(agents.contains("rustbrain"));
 
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)
