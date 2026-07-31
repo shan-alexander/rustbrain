@@ -309,21 +309,11 @@ pub fn assemble_context(
         }
     }
 
-    // Sort all candidates by score and pack into token budget.
+    // Sort for agent-useful packs: seeds before neighbors, decisions before symbols,
+    // then raw score. Keeps ADR + README above opportunistic symbol hops.
     candidates.sort_by(|a, b| {
-        // Prefer non-symbols slightly when scores are close (stable agent packs).
-        let a_bonus = if a.node.node_type == NodeType::Symbol {
-            0.0
-        } else {
-            0.05
-        };
-        let b_bonus = if b.node.node_type == NodeType::Symbol {
-            0.0
-        } else {
-            0.05
-        };
-        (b.score + b_bonus)
-            .partial_cmp(&(a.score + a_bonus))
+        pack_rank(b)
+            .partial_cmp(&pack_rank(a))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -531,6 +521,24 @@ fn excerpt_jaccard(a: &str, b: &str) -> f32 {
     }
 }
 
+fn pack_rank(c: &Candidate) -> f32 {
+    let role = match c.role {
+        ContextRole::Seed => 3.0,
+        ContextRole::Neighbor => 0.0,
+    };
+    let ty = match c.node.node_type {
+        NodeType::Adr => 2.5,
+        NodeType::Goal => 2.0,
+        NodeType::EdgeCase => 1.8,
+        NodeType::Concept => 1.4,
+        NodeType::Reference => 1.2,
+        NodeType::Alternative => 1.1,
+        NodeType::Symbol => 0.0,
+    };
+    // Score still dominates large gaps; bonuses break near-ties for agent packs.
+    c.score + role + ty
+}
+
 fn load_excerpt(db: &Database, node: &Node, max_chars: usize) -> Option<String> {
     let raw = db
         .get_fts_content(&node.id)
@@ -538,7 +546,24 @@ fn load_excerpt(db: &Database, node: &Node, max_chars: usize) -> Option<String> 
         .flatten()
         .filter(|s| !s.trim().is_empty())
         .or_else(|| node.summary.clone().filter(|s| !s.trim().is_empty()))?;
-    Some(truncate_excerpt(&raw, max_chars))
+    let cleaned = strip_yaml_frontmatter(&raw);
+    Some(truncate_excerpt(cleaned, max_chars))
+}
+
+/// Drop leading `---` YAML frontmatter so agent packs show body prose first.
+fn strip_yaml_frontmatter(s: &str) -> &str {
+    let t = s.trim_start();
+    if !t.starts_with("---") {
+        return s.trim();
+    }
+    let after_open = &t[3..];
+    // Allow optional newline after opening fence.
+    let body = after_open.strip_prefix('\n').unwrap_or(after_open);
+    if let Some(idx) = body.find("\n---") {
+        let rest = &body[idx + 4..];
+        return rest.trim_start_matches(['\r', '\n']).trim();
+    }
+    s.trim()
 }
 
 fn truncate_excerpt(s: &str, max_chars: usize) -> String {
@@ -765,6 +790,80 @@ mod tests {
                 ctx.nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
             );
         }
+    }
+
+    #[test]
+    fn strips_frontmatter_from_excerpts() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+        std::fs::write(
+            dir.path().join("docs/a.md"),
+            "---\ntags: [x]\nnode_type: concept\n---\n# Alpha\n\nBody about egui.\n",
+        )
+        .unwrap();
+        let mut brain = Brain::create(dir.path()).unwrap();
+        brain.sync().unwrap();
+        let ctx = assemble_context(
+            brain.database(),
+            brain.brain_dir(),
+            "egui",
+            &ContextOptions {
+                hop_depth: 0,
+                ..ContextOptions::default()
+            },
+        )
+        .unwrap();
+        let ex = ctx
+            .nodes
+            .iter()
+            .find_map(|n| n.excerpt.as_ref())
+            .expect("excerpt");
+        assert!(
+            !ex.trim_start().starts_with("---"),
+            "frontmatter leaked into excerpt: {ex}"
+        );
+        assert!(ex.to_lowercase().contains("egui") || ex.contains("Alpha"));
+    }
+
+    #[test]
+    fn prefers_adr_seed_over_symbol_neighbor() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("docs/adr")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "/// Run SQL via duckdb CLI.\npub fn run_sql() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("docs/adr/sql.md"),
+            "---\nnode_type: adr\n---\n# SQL via duckdb\n\nUse symbol:run_sql for SQL execution via duckdb CLI.\n",
+        )
+        .unwrap();
+        let mut brain = Brain::create(dir.path()).unwrap();
+        brain.sync().unwrap();
+        let _ = brain.sync().unwrap(); // resolve anchors
+        let ctx = assemble_context(
+            brain.database(),
+            brain.brain_dir(),
+            "how does SQL execution work",
+            &ContextOptions::default(),
+        )
+        .unwrap();
+        assert!(!ctx.nodes.is_empty());
+        let first = &ctx.nodes[0];
+        assert_eq!(
+            first.node_type,
+            NodeType::Adr,
+            "expected ADR first, got {:?} id={}",
+            first.node_type,
+            first.id
+        );
     }
 
     #[test]

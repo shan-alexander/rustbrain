@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-07-31
+
+### Polish — third dogfood pass
+
+- **`doctor` walks parents** for `.brain` (same as `query`/`context`) so CWD inside `src/` works.
+- **Context packing rank**: seeds before neighbors; ADR/goal before symbols — decisions surface first.
+- **Strip YAML frontmatter** from packed excerpts (body-first for agents).
+- **`context` default format is markdown** (use `-F xml` for tool protocols).
+- **Empty query hints** suggest `--with-symbols` or `sync`/`doctor`.
+- Tests: parent-walk doctor, frontmatter strip, ADR-over-symbol pack order.
+
 ## [0.3.1] - 2026-07-31
 
 ### Fixed / Improved — second dogfood round

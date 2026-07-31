@@ -22,7 +22,7 @@ Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbr
      rustbrain query / context / agents
 ```
 
-> **v0.3.1:** hub fallback for overview prompts, note auto-sync, note-first query, doctor ADR guidance.  
+> **v0.3.2:** doctor parent-walk, ADR-first packing, body-only excerpts, markdown context default.  
 > Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
 
 ---

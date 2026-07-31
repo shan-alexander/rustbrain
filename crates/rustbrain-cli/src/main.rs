@@ -5,8 +5,8 @@
 //! ```bash
 //! rustbrain setup --yes          # init + bootstrap + sync (+ doctor)
 //! rustbrain note new --type concept --title "X" --note "body for agents"
-//! rustbrain query "topic" --no-symbols --scores
-//! rustbrain context "why egui not tauri" -F markdown
+//! rustbrain query "topic" --scores
+//! rustbrain context "why egui not tauri"
 //! ```
 
 use anyhow::{bail, Context, Result};
@@ -176,8 +176,8 @@ enum Commands {
         /// Only these seed types (comma-separated)
         #[arg(long, value_name = "TYPES")]
         r#type: Option<String>,
-        /// Output format: `xml` or `markdown`
-        #[arg(short = 'F', long, default_value = "xml")]
+        /// Output format: `markdown` (default) or `xml`
+        #[arg(short = 'F', long, default_value = "markdown")]
         format: String,
         /// Workspace root (walks parents for `.brain` like git)
         #[arg(short = 'w', long, default_value = ".")]
@@ -594,6 +594,11 @@ fn run() -> Result<ExitCode> {
             let results = brain.query_ranked(&query, &opts)?;
             if results.is_empty() {
                 println!("no nodes found matching '{query}'");
+                if !include_symbols {
+                    println!("hint: try `rustbrain query \"{query}\" --with-symbols` or broader terms");
+                } else {
+                    println!("hint: run `rustbrain sync` or check `rustbrain doctor`");
+                }
             } else {
                 for (idx, hit) in results.iter().enumerate() {
                     let node = &hit.node;

@@ -62,10 +62,10 @@ fn init_sync_query_context_export() {
         .success()
         .stdout(predicate::str::contains("Raft"));
 
-    // Critical: context must not panic on short flags + positional prompt.
+    // Default format is markdown; xml still available.
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)
-        .args(["context", "-p", "raft", "-F", "markdown", "-w", "."])
+        .args(["context", "raft", "-w", "."])
         .assert()
         .success()
         .stdout(predicate::str::contains("rustbrain context"))
@@ -73,7 +73,7 @@ fn init_sync_query_context_export() {
 
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)
-        .args(["context", "raft", "-F", "markdown", "-w", "."])
+        .args(["context", "-p", "raft", "-F", "markdown", "-w", "."])
         .assert()
         .success()
         .stdout(predicate::str::contains("rustbrain context"));

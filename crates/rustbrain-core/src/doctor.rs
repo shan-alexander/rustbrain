@@ -64,32 +64,31 @@ pub struct DoctorReport {
 }
 
 /// Run doctor against a workspace (opens DB if present).
+///
+/// Walks parent directories for `.brain/db.sqlite` (same as [`crate::Brain::open`]).
 pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
-    let workspace = workspace
+    let start = workspace
         .canonicalize()
         .unwrap_or_else(|_| workspace.to_path_buf());
-    let brain_dir = workspace.join(".brain");
-    let db_path = brain_dir.join("db.sqlite");
-    let mmap_path = brain_dir.join("graph.mmap");
 
-    let mut findings = Vec::new();
-    let db_exists = db_path.is_file();
-    let mmap_exists = mmap_path.is_file();
-
-    if !db_exists {
+    let (workspace, brain_dir) = if let Some(found) = crate::brain::find_brain_dir(&start) {
+        found
+    } else {
+        let brain_dir = start.join(".brain");
+        let mut findings = Vec::new();
         findings.push(DoctorFinding {
             severity: DoctorSeverity::Error,
             code: "no_db".into(),
             message: format!(
-                "no database at {} — run `rustbrain init` and `rustbrain sync`",
-                db_path.display()
+                "no database at {} or parents — run `rustbrain setup --yes`",
+                brain_dir.display()
             ),
         });
         return Ok(DoctorReport {
-            workspace,
+            workspace: start,
             brain_dir,
             db_exists: false,
-            mmap_exists,
+            mmap_exists: false,
             schema_version: None,
             nodes: 0,
             edges: 0,
@@ -101,7 +100,12 @@ pub fn run_doctor(workspace: &Path) -> Result<DoctorReport> {
             healthy: false,
             findings,
         });
-    }
+    };
+
+    let db_path = brain_dir.join("db.sqlite");
+    let mmap_path = brain_dir.join("graph.mmap");
+    let mut findings = Vec::new();
+    let mmap_exists = mmap_path.is_file();
 
     let db = Database::open(&db_path)?;
     let nodes = db.count_nodes()?;
@@ -351,5 +355,21 @@ mod tests {
         assert!(report.db_exists);
         assert!(report.nodes >= 1);
         assert!(report.healthy || report.findings.iter().all(|f| f.severity != DoctorSeverity::Error));
+    }
+
+    #[test]
+    fn doctor_walks_parent_for_brain() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let sub = root.join("src").join("nested");
+        std::fs::create_dir_all(&sub).unwrap();
+        let mut brain = Brain::create(root).unwrap();
+        brain.sync().unwrap();
+        let report = run_doctor(&sub).unwrap();
+        assert!(report.db_exists, "doctor should find parent .brain");
+        assert_eq!(
+            report.workspace.canonicalize().unwrap(),
+            root.canonicalize().unwrap()
+        );
     }
 }

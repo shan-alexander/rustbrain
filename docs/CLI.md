@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.1)
+# rustbrain CLI reference (v0.3.2)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.1 --locked
+# or pin: cargo install rustbrain --version 0.3.2 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -285,7 +285,7 @@ rustbrain context "open" --with-symbols     # include symbols as seeds
 | `--with-symbols` / `--all-types` | Include symbols as **seeds** (default is note-first) |
 | `--no-hop-symbols` | Also exclude symbols from **neighbors** (default allows ADR → code hops) |
 | `--type a,b` | Seed type filter |
-| `-F xml\|markdown` | Output format (XML entity-escaped) |
+| `-F markdown\|xml` | Output format (default **markdown**; XML entity-escaped) |
 
 **Defaults (v0.3):** note-first seeds; hops still expand to useful symbols (noise consts filtered). Empty packs print a short recovery hint.
 
