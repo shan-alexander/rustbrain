@@ -1,0 +1,51 @@
+[package]
+name = "rustbrain-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustbrain-core"
+readme = "README.md"
+description = "Core engine for rustbrain: SQLite knowledge graph, ranked FTS, CSR mmap cache, and graph-aware AI context"
+keywords = ["knowledge-graph", "markdown", "sqlite", "fts", "second-brain"]
+categories = ["database", "text-processing", "development-tools"]
+
+[features]
+default = ["ast", "obsidian", "mmap"]
+# `full` enables every optional subsystem for docs.rs / CI.
+full = ["ast", "obsidian", "mmap", "watch", "jshift"]
+# Tree-sitter Rust symbol extraction (heavier compile).
+ast = ["dep:tree-sitter", "dep:tree-sitter-rust"]
+# WikiLinks, YAML frontmatter, Obsidian Canvas.
+obsidian = ["dep:serde_yaml_ng"]
+# CSR graph.mmap cache.
+mmap = ["dep:memmap2"]
+# Debounced filesystem watcher.
+watch = ["dep:notify"]
+# Optional in-place JSON helpers.
+jshift = ["dep:jshift"]
+
+[dependencies]
+rusqlite.workspace = true
+memmap2 = { workspace = true, optional = true }
+jshift = { workspace = true, optional = true }
+notify = { workspace = true, optional = true }
+tree-sitter = { workspace = true, optional = true }
+tree-sitter-rust = { workspace = true, optional = true }
+serde_yaml_ng = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+blake3.workspace = true
+dirs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  test:
+    name: test / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: test
+        run: cargo test --workspace --all-features
+      - name: docs
+        run: cargo doc -p rustbrain-core --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  package:
+    name: package published crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: package rustbrain-core
+        run: cargo package -p rustbrain-core --allow-dirty
+      # CLI package needs rustbrain-core on crates.io; dry-run --no-verify lists files only
+      - name: list rustbrain CLI package
+        run: cargo package -p rustbrain --allow-dirty --no-verify --list

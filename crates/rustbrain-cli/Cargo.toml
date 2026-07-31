@@ -1,0 +1,33 @@
+[package]
+name = "rustbrain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustbrain-core"
+readme = "README.md"
+description = "CLI for rustbrain — a lightweight Rust-native second brain for humans and AI agents"
+keywords = ["knowledge-graph", "markdown", "obsidian", "cli", "second-brain"]
+categories = ["command-line-utilities", "development-tools"]
+
+
+[[bin]]
+name = "rustbrain"
+path = "src/main.rs"
+
+[dependencies]
+rustbrain-core = { workspace = true, features = ["ast", "obsidian", "mmap", "watch"] }
+clap.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

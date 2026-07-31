@@ -1,0 +1,12 @@
+/target
+**/*.rs.bk
+.brain/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.mmap
+.idea/
+.vscode/
+*.swp
+.DS_Store
