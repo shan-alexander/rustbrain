@@ -58,6 +58,7 @@ pub mod indexer;
 pub mod mmap;
 pub mod mutator;
 pub mod note;
+pub mod plan_status;
 #[cfg(feature = "obsidian")]
 pub mod obsidian;
 pub mod query;
@@ -98,6 +99,9 @@ pub use ignore::{recommended_ignore_extras, write_rustbrainignore, IgnoreSet};
 pub use indexer::WorkspaceIndexer;
 pub use mmap::{CsrCompiler, CsrMmapGraph, MMAP_VERSION};
 pub use note::{create_note, default_dir_for_type, slugify_title, NoteCreated, NoteNewOptions};
+pub use plan_status::{
+    densify_plan, enrich_plan_index_fields, PlanStatus, PlanStatusDigest, PlanTask,
+};
 pub use query::{PendingLink, QueryOptions, RankedHit};
 pub use registry::{GlobalRankedHit, GlobalRegistry};
 pub use storage::{Database, SCHEMA_VERSION};

@@ -182,7 +182,7 @@ impl WorkspaceIndexer {
         };
 
         let now = Utc::now().timestamp();
-        let summary = if hub == Some(crate::hubs::ProjectHub::Changelog) {
+        let base_summary = if hub == Some(crate::hubs::ProjectHub::Changelog) {
             crate::hubs::changelog_latest_heading(body)
                 .unwrap_or_else(|| first_substantive_line(body))
         } else {
@@ -215,6 +215,38 @@ impl WorkspaceIndexer {
             {
                 Vec::new()
             }
+        };
+
+        // Optional frontmatter status/state (plan lifecycle).
+        let fm_status: Option<String> = {
+            #[cfg(feature = "obsidian")]
+            {
+                frontmatter.as_ref().and_then(|fm| {
+                    fm.extra
+                        .get("status")
+                        .or_else(|| fm.extra.get("state"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+            }
+            #[cfg(not(feature = "obsidian"))]
+            {
+                None
+            }
+        };
+
+        // Plan densification: status tokens for FTS + compact summary (optional; no-op if no signal).
+        let (fts_body, summary) = if node_type == NodeType::Plan
+            || hub == Some(crate::hubs::ProjectHub::Roadmap)
+            || hub == Some(crate::hubs::ProjectHub::Backlog)
+        {
+            crate::plan_status::enrich_plan_index_fields(
+                body,
+                fm_status.as_deref(),
+                &base_summary,
+            )
+        } else {
+            (body.to_string(), base_summary)
         };
 
         // Collect wikilinks before the transaction writes.
@@ -288,6 +320,22 @@ impl WorkspaceIndexer {
                     extra_aliases.push(v);
                 }
             }
+            // Plan hub aliases include overall status for resolution (e.g. "in_progress").
+            if matches!(
+                h,
+                crate::hubs::ProjectHub::Roadmap | crate::hubs::ProjectHub::Backlog
+            ) {
+                if let Some(st) = fm_status.as_deref().and_then(crate::plan_status::PlanStatus::parse)
+                {
+                    extra_aliases.push(st.as_str().to_string());
+                }
+            }
+        }
+        if node_type == NodeType::Plan {
+            if let Some(st) = fm_status.as_deref().and_then(crate::plan_status::PlanStatus::parse) {
+                extra_aliases.push(st.as_str().to_string());
+                extra_aliases.push(format!("status:{}", st.as_str()));
+            }
         }
 
         self.db.with_transaction(|conn| {
@@ -296,7 +344,7 @@ impl WorkspaceIndexer {
             self.db
                 .replace_node_aliases_on(conn, &node_id, &extra_aliases)?;
             self.db
-                .index_fts_on(conn, &node_id, &title, body, &tags_str)?;
+                .index_fts_on(conn, &node_id, &title, &fts_body, &tags_str)?;
 
             // Clear prior outbound edges + pending for this source (idempotent).
             self.db
@@ -997,6 +1045,52 @@ impl StorageEngine {
         .unwrap();
         let s2 = indexer.index_workspace().unwrap();
         assert!(s2.edges_created >= 1 || indexer.database().count_edges().unwrap() >= 1);
+    }
+
+    #[test]
+    fn plan_note_status_densified_in_fts() {
+        let dir = tempdir().unwrap();
+        let plans = dir.path().join("docs/plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        std::fs::write(
+            plans.join("sprint.md"),
+            "---\nnode_type: plan\nstatus: in_progress\n---\n# Sprint\n\n## Backlog\n\n- [ ] Write docs\n\n## Done\n\n- [x] Scaffold hub\n",
+        )
+        .unwrap();
+        let brain = dir.path().join(".brain");
+        std::fs::create_dir_all(&brain).unwrap();
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        let indexer = WorkspaceIndexer::new(db, dir.path());
+        indexer.index_workspace().unwrap();
+        let node = indexer
+            .database()
+            .get_node("docs/plans/sprint")
+            .unwrap()
+            .expect("plan node");
+        assert_eq!(node.node_type, NodeType::Plan);
+        assert!(
+            node.summary
+                .as_deref()
+                .is_some_and(|s| s.contains("status=in_progress") && s.contains("open")),
+            "summary={:?}",
+            node.summary
+        );
+        let fts = indexer
+            .database()
+            .get_fts_content("docs/plans/sprint")
+            .unwrap()
+            .unwrap_or_default();
+        assert!(fts.contains("status:in_progress"), "fts={fts}");
+        assert!(fts.contains("status:done") || fts.contains("task:done:"), "fts={fts}");
+        let hits = indexer
+            .database()
+            .search_ranked("status:in_progress", &crate::query::QueryOptions::human())
+            .unwrap();
+        assert!(
+            hits.iter().any(|h| h.node.id == "docs/plans/sprint"),
+            "hits={:?}",
+            hits.iter().map(|h| &h.node.id).collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -133,10 +133,17 @@ pub fn create_note(workspace: &Path, opts: &NoteNewOptions) -> Result<NoteCreate
         format!("\n{body}\n")
     };
 
+    let status_yaml = if matches!(opts.node_type, NodeType::Plan) {
+        "status: backlog\n"
+    } else {
+        ""
+    };
+
     let content = format!(
         "---\n\
          tags: {tags_yaml}\n\
          node_type: {}\n\
+         {status_yaml}\
          {aliases_yaml}\
          ---\n\
          # {}\n\
@@ -192,19 +199,39 @@ const ANALYSIS_NOTE_TEMPLATE: &str = r#"
 "#;
 
 /// Scaffold for plans / roadmaps / tasklists / todos (not a decision; not ship history).
+///
+/// Status vocabulary (indexed densely on sync): backlog | in_progress | qa | done |
+/// cancelled | undone. Set overall with frontmatter `status:` and/or section headings
+/// and checkboxes (`- [ ]` open, `- [x]` done, `- [/]` in progress, `- [~]` cancelled).
 const PLAN_NOTE_TEMPLATE: &str = r#"
 ## Status
 
-<!-- draft | active | done | deferred — free-form, not a kanban product -->
+<!-- overall: backlog | in_progress | qa | done | cancelled | undone -->
+in_progress
 
 ## Intent
 
 <!-- What outcome does this plan unlock? Link goals: [[docs/goals/…]] -->
 
-## Items
+## Backlog
 
 - [ ] 
-- [ ] 
+
+## In Progress
+
+- [/] 
+
+## QA
+
+- [?] 
+
+## Done
+
+- [x] 
+
+## Cancelled
+
+- [~] 
 
 ## Priority / order
 
@@ -344,8 +371,10 @@ mod tests {
             .starts_with("docs/plans/"));
         let text = std::fs::read_to_string(&created.path).unwrap();
         assert!(text.contains("node_type: plan"));
-        assert!(text.contains("## Items"));
+        assert!(text.contains("status: backlog"));
+        assert!(text.contains("## Backlog"));
         assert!(text.contains("- [ ]"));
+        assert!(text.contains("## Done"));
     }
 
     #[test]

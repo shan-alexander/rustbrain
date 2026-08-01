@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Serialized as `snake_case` strings in YAML frontmatter and SQLite.
 /// Root hubs: `CHANGELOG.md` → [`Changelog`], `ROADMAP.md` / `BACKLOG.md` → [`Plan`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeType {
     /// Overarching project goal, PRD requirement, SLA target, or scope limitation.

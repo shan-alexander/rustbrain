@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.17] - 2026-07-31
+
+### Added — plan status densification (optional, algorithmically dense)
+
+- Index-time **plan status digest** for `plan` notes (and ROADMAP/BACKLOG hubs):
+  - Canonical tokens: `backlog`, `in_progress`, `qa`, `done`, `cancelled`, `undone`
+  - Sources: frontmatter `status:`/`state:`, `## Status`, section headings, checkboxes
+    (`- [ ]` / `- [/]` / `- [x]` / `- [~]` / `- [?]`), tagged bullets
+  - **Summary** line: `plan status=… · open N · done M · cancelled K`
+  - **FTS block**: `status:…`, `task:status:slug`, `plan_open:N` for agent query/context
+- Plan scaffold includes status sections; docs stress **optional** hubs (no CHANGELOG/plan required)
+- Doctor `no_changelog` wording: optional for apps; never blocking
+
 ## [0.3.16] - 2026-07-31
 
 ### Added — `changelog` + `plan` node types; `docs/AGENTS.md`

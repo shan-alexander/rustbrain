@@ -864,17 +864,36 @@ Place project goals and non-goals here.
 const PLANS_DIR_README: &str = r#"---
 node_type: plan
 tags: [plan, index]
+status: backlog
 ---
 # Plans / roadmaps / tasklists
 
 Use **`node_type: plan`** (aliases: roadmap, backlog, todo, tasklist) for prioritization
 and work queues — not ship history (that is root **`CHANGELOG.md`** → hub `changelog`).
 
+**All of this is optional.** If you only use concepts/ADRs, rustbrain still works.
+
+### Status (indexed densely on `sync`)
+
+| Token | Meaning |
+|-------|---------|
+| `backlog` | not started |
+| `in_progress` | active work |
+| `qa` | review / testing |
+| `done` | finished |
+| `cancelled` | abandoned |
+| `undone` | reopened / blocked |
+
+Set overall with frontmatter `status: in_progress` and/or checkboxes:
+
+- `- [ ]` backlog · `- [/]` in progress · `- [x]` done · `- [~]` cancelled · `- [?]` qa
+
 ```bash
 rustbrain note new --type plan --title "Q3 platform roadmap"
-rustbrain note new --type plan --title "Backlog triage 2026-07"
+# edit checkboxes / status, then:
 rustbrain sync
-rustbrain context "roadmap priorities"
+rustbrain query "status:in_progress" --type plan --scores
+rustbrain context "open plan tasks"
 ```
 
 Root hubs (if present): `ROADMAP.md` → id `roadmap`, `BACKLOG.md` → id `backlog`.
@@ -927,10 +946,16 @@ rustbrain links --apply --write
 | Ship history (Keep a Changelog) | root **`CHANGELOG.md`** → hub **`changelog`** | `changelog` |
 | Goals | `docs/goals/` | `goal` |
 | Decisions | `docs/adr/` | `adr` |
-| Plans / roadmaps / todos | `docs/plans/`, root `ROADMAP.md` / `BACKLOG.md` | `plan` |
+| Plans / roadmaps / todos | `docs/plans/`, root `ROADMAP.md` / `BACKLOG.md` | `plan` (optional) |
 | Investigations | `docs/analysis/` | `analysis` |
 | Concepts | `docs/concepts/` | `concept` |
 | Edge cases | `docs/edge_cases/` | `edge_case` |
+
+**Optional hubs:** CHANGELOG / ROADMAP / BACKLOG are *features when present*, never required.
+Core workflow (goals, ADRs, concepts, analysis, symbols) works without them.
+
+**Plan status tokens** (after sync): query `status:in_progress`, `status:done`, `plan_open:…`
+or read the plan note summary line `plan status=… · open N · done M`.
 
 **Do not invent ADR history or changelog entries.** If `CHANGELOG.md` exists, treat it as ground truth for releases; update it when you ship, then `sync`.
 

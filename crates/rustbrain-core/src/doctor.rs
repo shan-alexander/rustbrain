@@ -446,7 +446,7 @@ fn assess_changelog(
             findings.push(DoctorFinding {
                 severity: DoctorSeverity::Info,
                 code: "no_changelog".into(),
-                message: "no root CHANGELOG.md — Rust/crates.io convention is Keep a Changelog + SemVer; when present, rustbrain indexes it as hub `changelog` for release/status context. Optional for apps"
+                message: "no root CHANGELOG.md — optional. Crates often use Keep a Changelog + SemVer; when present, hub `changelog` (type changelog) improves release context. Apps/private tools can ignore this"
                     .into(),
             });
         }

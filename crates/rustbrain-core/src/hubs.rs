@@ -4,12 +4,13 @@
 //! - [`README.md`](https://doc.rust-lang.org/cargo/guide/project-layout.html) — project front door
 //! - [`CHANGELOG.md`](https://keepachangelog.com/) — Keep a Changelog + SemVer ship history
 //!
-//! Optional planning surfaces (agent HITL, not required):
+//! **Optional** planning surfaces (agent HITL — never required for a healthy brain):
 //! - `ROADMAP.md`, `BACKLOG.md` — priorities / unshipped work
 //!
 //! These are indexed under **stable node ids** (`readme`, `changelog`, …) so agents
-//! can query and context-pack them reliably. Rustbrain never invents changelog
-//! entries — it only surfaces what is already on disk after `sync`.
+//! can query and context-pack them reliably when the files exist. Absence is fine:
+//! doctor tips are info-level only. Rustbrain never invents changelog entries or
+//! plan tasks — it only densifies what is already on disk after `sync`.
 
 use std::path::{Component, Path};
 
