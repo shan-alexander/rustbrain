@@ -954,11 +954,11 @@ and work queues — not ship history (that is root **`CHANGELOG.md`** → hub `c
 | `qa` | review / testing |
 | `done` | finished |
 | `cancelled` | abandoned |
-| `undone` | reopened / blocked |
+| `blocked` | stuck / on hold / reopened (`undone` still accepted as alias) |
 
 Set overall with frontmatter `status: in_progress` and/or checkboxes:
 
-- `- [ ]` backlog · `- [/]` in progress · `- [x]` done · `- [~]` cancelled · `- [?]` qa
+- `- [ ]` backlog · `- [/]` in progress · `- [x]` done · `- [~]` cancelled · `- [?]` qa · `- [!]` blocked
 
 ```bash
 rustbrain note new --type plan --title "Q3 platform roadmap"

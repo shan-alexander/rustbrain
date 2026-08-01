@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "rustbrain"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1033,7 +1033,7 @@ dependencies = [
 
 [[package]]
 name = "rustbrain-core"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "aho-corasick",
  "blake3",

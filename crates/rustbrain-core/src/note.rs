@@ -201,12 +201,12 @@ const ANALYSIS_NOTE_TEMPLATE: &str = r#"
 /// Scaffold for plans / roadmaps / tasklists / todos (not a decision; not ship history).
 ///
 /// Status vocabulary (indexed densely on sync): backlog | in_progress | qa | done |
-/// cancelled | undone. Set overall with frontmatter `status:` and/or section headings
+/// cancelled | blocked. Set overall with frontmatter `status:` and/or section headings
 /// and checkboxes (`- [ ]` open, `- [x]` done, `- [/]` in progress, `- [~]` cancelled).
 const PLAN_NOTE_TEMPLATE: &str = r#"
 ## Status
 
-<!-- overall: backlog | in_progress | qa | done | cancelled | undone -->
+<!-- overall: backlog | in_progress | qa | done | cancelled | blocked -->
 in_progress
 
 ## Intent
@@ -232,6 +232,10 @@ in_progress
 ## Cancelled
 
 - [~] 
+
+## Blocked
+
+- [!] 
 
 ## Priority / order
 

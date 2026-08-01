@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.19] - 2026-07-31
+
+### Changed — plan status `undone` → `blocked`
+
+- Canonical plan status token is now **`blocked`** (FTS `status:blocked`, summary line).
+- Parse aliases still accept `undone`, `reopen`, `reopened`, `stuck`, `on_hold`, `paused`, `deferred`.
+- Plan scaffold and docs updated; re-`sync` plans to refresh densified tokens.
+
 ## [0.3.18] - 2026-07-31
 
 ### Added — Cargo.toml → docs.rs reference notes on setup/bootstrap
@@ -24,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — plan status densification (optional, algorithmically dense)
 
 - Index-time **plan status digest** for `plan` notes (and ROADMAP/BACKLOG hubs):
-  - Canonical tokens: `backlog`, `in_progress`, `qa`, `done`, `cancelled`, `undone`
+  - Canonical tokens: `backlog`, `in_progress`, `qa`, `done`, `cancelled`, `blocked`
   - Sources: frontmatter `status:`/`state:`, `## Status`, section headings, checkboxes
     (`- [ ]` / `- [/]` / `- [x]` / `- [~]` / `- [?]`), tagged bullets
   - **Summary** line: `plan status=… · open N · done M · cancelled K`

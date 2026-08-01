@@ -11,7 +11,7 @@
 //! | `qa` | qa, review, in-review, testing, verification |
 //! | `done` | done, complete, completed, finished, closed, shipped (task-level) |
 //! | `cancelled` | cancelled, canceled, wontfix, dropped, obsolete |
-//! | `undone` | undone, reopen, reopened, blocked, stuck |
+//! | `blocked` | blocked, stuck, on_hold, paused, deferred, undone, reopen, reopened |
 //!
 //! Sources (first wins for *overall* status when explicit):
 //! 1. YAML frontmatter `status:` / `state:`
@@ -39,8 +39,8 @@ pub enum PlanStatus {
     Done,
     /// Explicitly abandoned.
     Cancelled,
-    /// Reopened, blocked, or otherwise not done after work started.
-    Undone,
+    /// Blocked, stuck, on hold, or reopened (not actively progressing).
+    Blocked,
 }
 
 impl PlanStatus {
@@ -52,7 +52,7 @@ impl PlanStatus {
             Self::Qa => "qa",
             Self::Done => "done",
             Self::Cancelled => "cancelled",
-            Self::Undone => "undone",
+            Self::Blocked => "blocked",
         }
     }
 
@@ -75,8 +75,9 @@ impl PlanStatus {
             | "fixed" | "merged" => Some(Self::Done),
             "cancelled" | "canceled" | "wontfix" | "wont_fix" | "dropped" | "obsolete"
             | "abandoned" | "declined" => Some(Self::Cancelled),
-            "undone" | "reopen" | "reopened" | "blocked" | "stuck" | "on_hold" | "paused"
-            | "deferred" => Some(Self::Undone),
+            // Canonical `blocked`; `undone` kept as alias for older notes.
+            "blocked" | "stuck" | "on_hold" | "paused" | "deferred" | "undone" | "reopen"
+            | "reopened" => Some(Self::Blocked),
             _ => None,
         }
     }
@@ -100,7 +101,7 @@ pub struct PlanStatusDigest {
     pub counts: BTreeMap<String, usize>,
     /// Individual tasks (capped).
     pub tasks: Vec<PlanTask>,
-    /// Open = backlog + in_progress + qa + undone.
+    /// Open = backlog + in_progress + qa + blocked.
     pub open: usize,
     /// Done count.
     pub done: usize,
@@ -241,7 +242,7 @@ pub fn densify_plan(frontmatter_status: Option<&str>, body: &str) -> PlanStatusD
     let cancelled = *counts.get("cancelled").unwrap_or(&0);
     let open = counts
         .iter()
-        .filter(|(k, _)| matches!(k.as_str(), "backlog" | "in_progress" | "qa" | "undone"))
+        .filter(|(k, _)| matches!(k.as_str(), "backlog" | "in_progress" | "qa" | "blocked"))
         .map(|(_, n)| *n)
         .sum();
 
@@ -263,8 +264,8 @@ fn infer_overall(counts: &BTreeMap<String, usize>) -> PlanStatus {
     if get("qa") > 0 {
         return PlanStatus::Qa;
     }
-    if get("undone") > 0 {
-        return PlanStatus::Undone;
+    if get("blocked") > 0 {
+        return PlanStatus::Blocked;
     }
     if get("backlog") > 0 {
         return PlanStatus::Backlog;
@@ -296,7 +297,7 @@ fn parse_checkbox_line(t: &str) -> Option<(Option<PlanStatus>, String)> {
         "/" | ">" | "o" => Some(PlanStatus::InProgress),
         "~" | "-" => Some(PlanStatus::Cancelled),
         "?" => Some(PlanStatus::Qa),
-        "!" => Some(PlanStatus::Undone),
+        "!" => Some(PlanStatus::Blocked),
         other => PlanStatus::parse(other),
     };
     Some((st, text))
@@ -473,7 +474,7 @@ in_progress
         let body = "- done: ship 0.3\n- blocked: flaky CI\n";
         let d = densify_plan(None, body);
         assert!(d.tasks.iter().any(|t| t.status == PlanStatus::Done));
-        assert!(d.tasks.iter().any(|t| t.status == PlanStatus::Undone));
+        assert!(d.tasks.iter().any(|t| t.status == PlanStatus::Blocked));
     }
 
     #[test]
@@ -481,5 +482,8 @@ in_progress
         assert_eq!(PlanStatus::parse("WIP"), Some(PlanStatus::InProgress));
         assert_eq!(PlanStatus::parse("wontfix"), Some(PlanStatus::Cancelled));
         assert_eq!(PlanStatus::parse("in-review"), Some(PlanStatus::Qa));
+        assert_eq!(PlanStatus::parse("blocked"), Some(PlanStatus::Blocked));
+        // Legacy alias
+        assert_eq!(PlanStatus::parse("undone"), Some(PlanStatus::Blocked));
     }
 }
