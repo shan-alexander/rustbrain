@@ -290,11 +290,18 @@ impl Brain {
     ///
     /// See [`crate::apply_links::apply_links`]. When `opts.write` is true and
     /// `opts.sync_after`, call [`Self::sync`] after a successful write.
+    ///
+    /// Sets `cache_dir` to `.brain/` when the caller left it unset so discover
+    /// can reuse the LinkLexicon fingerprint cache.
     pub fn apply_links(
         &self,
         opts: &crate::apply_links::ApplyOptions,
     ) -> Result<crate::apply_links::ApplyReport> {
-        crate::apply_links::apply_links(&self.workspace, &self.db, opts)
+        let mut opts = opts.clone();
+        if opts.cache_dir.is_none() {
+            opts.cache_dir = Some(self.brain_dir.clone());
+        }
+        crate::apply_links::apply_links(&self.workspace, &self.db, &opts)
     }
 
     /// k-hop neighborhood around a node (path, id, title, or `symbol:…`).

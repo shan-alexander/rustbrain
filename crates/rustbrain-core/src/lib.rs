@@ -67,7 +67,7 @@ pub mod types;
 pub mod watch;
 
 pub use apply_links::{
-    apply_links, ApplyEdit, ApplyKind, ApplyOptions, ApplyReport, ApplyTier,
+    apply_links, ApplyEdit, ApplyKind, ApplyOptions, ApplyReport, ApplyStyle, ApplyTier,
 };
 pub use autolink::{
     is_auto_relation, is_explicit_relation, list_orphan_notes, normalize_target_arg, path_stem,
@@ -99,7 +99,7 @@ pub use symbols::{extract_symbol_refs, symbol_node_id, SymbolRef};
 pub use types::{
     xml_escape, ContextBundle, ContextNode, ContextRole, Edge, Node, NodeType, SyncStats,
 };
-pub use watch::WatchConfig;
+pub use watch::{is_indexable, is_under_skipped, WatchConfig};
 
 #[cfg(feature = "ast")]
 pub use ast::{compute_symbol_hash, AstError, CodeAstParser, SymbolAnchor};

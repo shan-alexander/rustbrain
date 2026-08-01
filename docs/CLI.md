@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.13)
+# rustbrain CLI reference (v0.3.14)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.13 --locked
+# or pin: cargo install rustbrain --version 0.3.14 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -225,6 +225,8 @@ rustbrain links --apply --write
 # Phase 1 — also plan unmarked title/alias/symbol mentions
 rustbrain links --apply --discover --dry-run
 rustbrain links --apply --discover --write
+rustbrain links --apply --discover --write --style related   # ## Related section
+rustbrain links --apply --discover --write --no-graph-priors
 
 # Focus one source note; JSON for agents
 rustbrain links --apply --dry-run docs/concepts/raft.md
@@ -240,11 +242,15 @@ rustbrain links --apply --write --no-sync
 | `--write` | Required to mutate files |
 | `--dry-run` | Plan only (default without `--write`) |
 | `--discover` | AC scan for unmarked mentions (suggest + strong auto) |
+| `--style` | `wrap` (default, inline) or `related` (`## Related` list) |
+| `--no-graph-priors` | Disable 1-hop neighbor boost for discover scoring |
 | `--force` | Rewrite generated bootstrap files |
 | `--limit N` | Cap auto-tier edits (default 200) |
 | `--no-sync` | Skip automatic sync after write |
 | `TARGET` | Optional source path/id filter |
 | `--json` | Full `ApplyReport` |
+
+Discover uses a **LinkLexicon** cache at `.brain/link_lexicon.json` (invalidated when nodes/aliases change).
 
 **Tiers:** `AUTO` may write; `SUGGEST` is report-only; `SKIP` never writes (ambiguous, unresolved,
 generated, missing file, limit). Edits are atomic (temp + rename) with UTF-8-safe spans.

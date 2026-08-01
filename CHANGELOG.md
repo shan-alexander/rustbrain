@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.14] - 2026-07-31
+
+### Improved — apply discover + watch polish (try-harder)
+
+- **LinkLexicon disk cache** at `.brain/link_lexicon.json` (fingerprint of nodes/aliases);
+  rebuild only when the brain identity changes; AC automaton rebuilt from cached surfaces.
+- **Graph priors** (default on): 1-hop SQLite adjacency boosts discover hits that already
+  neighbor the source (promotes weak → AUTO; reason tag `[graph-neighbor boost]`).
+  Disable with `--no-graph-priors`.
+- **`--style wrap|related`**: wrap still inlines WikiLinks; `related` leaves prose alone and
+  appends under `## Related` (creates the section if missing; idempotent).
+- **Watch**: clean `cfg(feature = "watch")` implementation (no dead imports); respects
+  `.rustbrainignore`; skips `.brain`/`target`/…; reindex failures log and continue;
+  unit tests for path filters. CLI already enables the `watch` feature.
+- **Integration test**: pending WikiLink + target node → apply write → reindex clears ledger.
+- Library: `ApplyStyle`, `is_indexable`, `is_under_skipped`.
+
 ## [0.3.13] - 2026-07-31
 
 ### Added — `links --apply` (Phase 0 pending + Phase 1 AC discover)

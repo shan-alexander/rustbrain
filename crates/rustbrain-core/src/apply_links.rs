@@ -27,6 +27,28 @@ use std::path::{Path, PathBuf};
 
 // ── public options / report ─────────────────────────────────────────────────
 
+/// How discover mentions are materialised in Markdown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyStyle {
+    /// Wrap the mention in-place: `Raft` → `[[docs/concepts/raft|Raft]]`.
+    #[default]
+    Wrap,
+    /// Leave the mention text; append `- [[id|surface]]` under a `## Related` section.
+    Related,
+}
+
+impl ApplyStyle {
+    /// Parse `wrap` / `related` (case-insensitive).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "wrap" | "inline" => Some(Self::Wrap),
+            "related" | "section" => Some(Self::Related),
+            _ => None,
+        }
+    }
+}
+
 /// Options for [`apply_links`].
 #[derive(Debug, Clone)]
 pub struct ApplyOptions {
@@ -46,6 +68,12 @@ pub struct ApplyOptions {
     pub sync_after: bool,
     /// Include `suggest`-tier discover hits in the report (always; never auto-written).
     pub report_suggest: bool,
+    /// Discover materialisation style (default [`ApplyStyle::Wrap`]).
+    pub style: ApplyStyle,
+    /// Prefer graph-neighbor targets (1-hop SQLite adjacency) when scoring discover hits.
+    pub graph_priors: bool,
+    /// Directory for lexicon cache (usually `workspace/.brain`). When `None`, no disk cache.
+    pub cache_dir: Option<PathBuf>,
 }
 
 impl Default for ApplyOptions {
@@ -59,6 +87,9 @@ impl Default for ApplyOptions {
             target: None,
             sync_after: true,
             report_suggest: true,
+            style: ApplyStyle::Wrap,
+            graph_priors: true,
+            cache_dir: None,
         }
     }
 }
@@ -85,8 +116,10 @@ pub enum ApplyKind {
     PendingResolvedNoEdit,
     /// Pending could not be resolved uniquely.
     PendingUnresolved,
-    /// Wrap an unmarked mention in a WikiLink (discover).
+    /// Wrap an unmarked mention in a WikiLink (discover + style=wrap).
     DiscoverWrap,
+    /// Append a WikiLink under `## Related` (discover + style=related).
+    DiscoverRelated,
     /// Discover hit filtered / not applied.
     DiscoverSkip,
     /// File-level skip (missing path, generated, …).
@@ -147,6 +180,10 @@ pub struct ApplyReport {
     pub recommend_sync: bool,
     /// Surfaces excluded from discover because they map to multiple nodes.
     pub ambiguous_surfaces: usize,
+    /// Whether the LinkLexicon was loaded from `.brain/link_lexicon.json` cache.
+    pub lexicon_cache_hit: bool,
+    /// Discover style used.
+    pub style: ApplyStyle,
 }
 
 impl ApplyReport {
@@ -364,13 +401,28 @@ pub fn apply_links(
 
     // Phase 1: discover unmarked mentions.
     let mut ambiguous_surfaces = 0usize;
+    let mut lexicon_cache_hit = false;
+    let mut related_ops: HashMap<PathBuf, Vec<RelatedInsert>> = HashMap::new();
+
+    // 1-hop undirected adjacency for graph priors (SQLite edges; always available).
+    let adjacency = if opts.discover && opts.graph_priors {
+        build_adjacency(db)?
+    } else {
+        HashMap::new()
+    };
+
     if opts.discover {
-        let lexicon = LinkLexicon::compile(&node_by_id, &aliases)?;
+        let (lexicon, cache_hit) =
+            load_or_compile_lexicon(opts.cache_dir.as_deref(), &node_by_id, &aliases)?;
+        lexicon_cache_hit = cache_hit;
         ambiguous_surfaces = lexicon.ambiguous.len();
         if ambiguous_surfaces > 0 {
             warnings.push(format!(
                 "discover: {ambiguous_surfaces} surface(s) excluded as ambiguous (unique match required)"
             ));
+        }
+        if cache_hit {
+            warnings.push("discover: LinkLexicon loaded from cache".into());
         }
         if let Some(ac) = lexicon.build_automaton() {
             let sources: Vec<&Node> = if let Some(t) = &opts.target {
@@ -404,6 +456,7 @@ pub fn apply_links(
                 if is_generated_file(rel, &content) && !opts.force_generated {
                     continue;
                 }
+                let neighbors = adjacency.get(&source.id).cloned().unwrap_or_default();
                 plan_discover_for_file(
                     source,
                     rel,
@@ -411,8 +464,12 @@ pub fn apply_links(
                     &lexicon,
                     &ac,
                     opts.report_suggest,
+                    opts.style,
+                    opts.graph_priors,
+                    &neighbors,
                     &mut edits,
                     &mut file_ops,
+                    &mut related_ops,
                     &abs,
                 );
             }
@@ -421,16 +478,22 @@ pub fn apply_links(
         }
     }
 
-    // Enforce limit on auto-tier span replaces (prefer pending over discover by sort).
-    prioritize_and_cap_ops(&mut file_ops, &mut edits, limit);
+    // Enforce limit on auto-tier ops (prefer pending over discover by sort).
+    prioritize_and_cap_ops(&mut file_ops, &mut related_ops, &mut edits, limit);
 
     // Apply writes.
     let mut files_written = Vec::new();
     let mut files_planned = Vec::new();
     let mut written_count = 0usize;
 
-    for (abs, ops) in &file_ops {
-        if ops.is_empty() {
+    // Union of files with any planned mutation.
+    let mut all_paths: HashSet<PathBuf> = file_ops.keys().cloned().collect();
+    all_paths.extend(related_ops.keys().cloned());
+
+    for abs in &all_paths {
+        let span_ops = file_ops.get(abs).map(|v| v.as_slice()).unwrap_or(&[]);
+        let rel_ops = related_ops.get(abs).map(|v| v.as_slice()).unwrap_or(&[]);
+        if span_ops.is_empty() && rel_ops.is_empty() {
             continue;
         }
         let rel = abs
@@ -452,38 +515,26 @@ pub fn apply_links(
             }
         };
 
-        match apply_span_replaces(&original, ops) {
-            Ok(new_content) => {
-                if new_content == original {
-                    continue;
-                }
-                match atomic_write(abs, &new_content) {
-                    Ok(()) => {
-                        files_written.push(rel);
-                        written_count += ops.len();
-                        // mark matching edits written
-                        for op in ops {
-                            for e in edits.iter_mut() {
-                                if e.span == Some((op.start, op.end))
-                                    && e.file_path.as_deref()
-                                        == Some(
-                                            abs.strip_prefix(workspace)
-                                                .unwrap_or(abs)
-                                                .to_string_lossy()
-                                                .replace('\\', "/")
-                                                .as_str(),
-                                        )
-                                    && e.tier == ApplyTier::Auto
-                                {
-                                    e.written = true;
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => warnings.push(format!("atomic write {}: {e}", abs.display())),
-                }
+        let after_spans = match apply_span_replaces(&original, span_ops) {
+            Ok(c) => c,
+            Err(e) => {
+                warnings.push(format!("apply plan {}: {e}", abs.display()));
+                continue;
             }
-            Err(e) => warnings.push(format!("apply plan {}: {e}", abs.display())),
+        };
+        let new_content = if rel_ops.is_empty() {
+            after_spans
+        } else {
+            insert_related_links(&after_spans, rel_ops)
+        };
+        if new_content == original {
+            continue;
+        }
+        match atomic_write(abs, &new_content) {
+            Ok(()) => {
+                files_written.push(rel);
+            }
+            Err(e) => warnings.push(format!("atomic write {}: {e}", abs.display())),
         }
     }
 
@@ -498,7 +549,9 @@ pub fn apply_links(
                     .is_some_and(|p| written_set.contains(p))
                 && matches!(
                     e.kind,
-                    ApplyKind::PendingWikiNormalize | ApplyKind::DiscoverWrap
+                    ApplyKind::PendingWikiNormalize
+                        | ApplyKind::DiscoverWrap
+                        | ApplyKind::DiscoverRelated
                 )
             {
                 e.written = true;
@@ -533,6 +586,8 @@ pub fn apply_links(
         warnings,
         recommend_sync: !dry_run && written_count > 0 && opts.sync_after,
         ambiguous_surfaces,
+        lexicon_cache_hit,
+        style: opts.style,
     })
 }
 
@@ -543,6 +598,14 @@ struct SpanReplace {
     start: usize,
     end: usize,
     replacement: String,
+    /// Prefer pending (0) over discover (1) when capping.
+    priority: u8,
+}
+
+#[derive(Debug, Clone)]
+struct RelatedInsert {
+    target_id: String,
+    surface: String,
     /// Prefer pending (0) over discover (1) when capping.
     priority: u8,
 }
@@ -604,61 +667,296 @@ fn atomic_write(path: &Path, content: &str) -> Result<()> {
 
 fn prioritize_and_cap_ops(
     file_ops: &mut HashMap<PathBuf, Vec<SpanReplace>>,
+    related_ops: &mut HashMap<PathBuf, Vec<RelatedInsert>>,
     edits: &mut [ApplyEdit],
     limit: usize,
 ) {
-    // Collect all auto ops with global priority.
-    let mut all: Vec<(PathBuf, SpanReplace)> = Vec::new();
+    enum CapKind {
+        Span { path: PathBuf, start: usize, end: usize, priority: u8 },
+        Related { path: PathBuf, target: String, priority: u8 },
+    }
+
+    let mut all: Vec<CapKind> = Vec::new();
     for (p, ops) in file_ops.iter() {
         for op in ops {
-            all.push((p.clone(), op.clone()));
+            all.push(CapKind::Span {
+                path: p.clone(),
+                start: op.start,
+                end: op.end,
+                priority: op.priority,
+            });
+        }
+    }
+    for (p, ops) in related_ops.iter() {
+        for op in ops {
+            all.push(CapKind::Related {
+                path: p.clone(),
+                target: op.target_id.clone(),
+                priority: op.priority,
+            });
         }
     }
     all.sort_by(|a, b| {
-        a.1.priority
-            .cmp(&b.1.priority)
-            .then_with(|| a.0.cmp(&b.0))
-            .then_with(|| a.1.start.cmp(&b.1.start))
+        let (pa, path_a) = match a {
+            CapKind::Span { path, priority, .. } => (*priority, path),
+            CapKind::Related { path, priority, .. } => (*priority, path),
+        };
+        let (pb, path_b) = match b {
+            CapKind::Span { path, priority, .. } => (*priority, path),
+            CapKind::Related { path, priority, .. } => (*priority, path),
+        };
+        pa.cmp(&pb).then_with(|| path_a.cmp(path_b))
     });
 
     if all.len() <= limit {
         return;
     }
 
-    let keep: HashSet<(PathBuf, usize, usize)> = all
-        .iter()
-        .take(limit)
-        .map(|(p, op)| (p.clone(), op.start, op.end))
-        .collect();
-
-    for (p, ops) in file_ops.iter_mut() {
-        ops.retain(|op| keep.contains(&(p.clone(), op.start, op.end)));
+    let mut keep_spans: HashSet<(PathBuf, usize, usize)> = HashSet::new();
+    let mut keep_related: HashSet<(PathBuf, String)> = HashSet::new();
+    for item in all.into_iter().take(limit) {
+        match item {
+            CapKind::Span {
+                path, start, end, ..
+            } => {
+                keep_spans.insert((path, start, end));
+            }
+            CapKind::Related { path, target, .. } => {
+                keep_related.insert((path, target));
+            }
+        }
     }
 
-    // Demote edits that lost their op
+    for (p, ops) in file_ops.iter_mut() {
+        ops.retain(|op| keep_spans.contains(&(p.clone(), op.start, op.end)));
+    }
+    for (p, ops) in related_ops.iter_mut() {
+        ops.retain(|op| keep_related.contains(&(p.clone(), op.target_id.clone())));
+    }
+
     for e in edits.iter_mut() {
-        if e.tier == ApplyTier::Auto && e.after.is_some() {
-            if let (Some(fp), Some((s, en))) = (&e.file_path, e.span) {
-                let abs_match = keep.iter().any(|(p, a, b)| {
-                    *a == s
-                        && *b == en
-                        && p.to_string_lossy().replace('\\', "/").ends_with(fp.as_str())
-                });
-                if !abs_match {
-                    // might still be kept — check loosely
-                    let still = file_ops.values().flatten().any(|op| {
-                        op.start == s && op.end == en && op.replacement == e.after.as_deref().unwrap_or("")
-                    });
-                    if !still {
-                        e.tier = ApplyTier::Skip;
-                        e.kind = ApplyKind::FileSkip;
-                        e.reason = format!("capped by --limit {limit}");
-                        e.after = None;
+        if e.tier != ApplyTier::Auto || e.after.is_none() {
+            continue;
+        }
+        let still = match e.kind {
+            ApplyKind::DiscoverRelated => e
+                .target_id
+                .as_ref()
+                .is_some_and(|tid| related_ops.values().flatten().any(|r| &r.target_id == tid)),
+            _ => e.span.is_some_and(|(s, en)| {
+                file_ops
+                    .values()
+                    .flatten()
+                    .any(|op| op.start == s && op.end == en)
+            }),
+        };
+        if !still {
+            e.tier = ApplyTier::Skip;
+            e.kind = ApplyKind::FileSkip;
+            e.reason = format!("capped by --limit {limit}");
+            e.after = None;
+        }
+    }
+}
+
+fn build_adjacency(db: &Database) -> Result<HashMap<String, HashSet<String>>> {
+    let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
+    for e in db.get_all_edges()? {
+        adj.entry(e.source_id.clone())
+            .or_default()
+            .insert(e.target_id.clone());
+        adj.entry(e.target_id)
+            .or_default()
+            .insert(e.source_id);
+    }
+    Ok(adj)
+}
+
+/// Cache schema for LinkLexicon surfaces (AC is rebuilt from surfaces; fast).
+const LEXICON_CACHE_VERSION: u32 = 1;
+const LEXICON_CACHE_NAME: &str = "link_lexicon.json";
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LexiconCacheFile {
+    version: u32,
+    fingerprint: String,
+    surfaces: Vec<CachedSurface>,
+    ambiguous: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedSurface {
+    surface: String,
+    node_id: String,
+    kind: u8,
+}
+
+fn pattern_kind_to_u8(k: PatternKind) -> u8 {
+    match k {
+        PatternKind::Title => 0,
+        PatternKind::Alias => 1,
+        PatternKind::Stem => 2,
+        PatternKind::SymbolName => 3,
+    }
+}
+
+fn pattern_kind_from_u8(v: u8) -> PatternKind {
+    match v {
+        1 => PatternKind::Alias,
+        2 => PatternKind::Stem,
+        3 => PatternKind::SymbolName,
+        _ => PatternKind::Title,
+    }
+}
+
+fn lexicon_fingerprint(
+    nodes: &HashMap<String, Node>,
+    aliases: &HashMap<String, String>,
+) -> String {
+    let mut lines: Vec<String> = nodes
+        .values()
+        .map(|n| {
+            format!(
+                "n|{}|{}|{}|{}",
+                n.id,
+                n.title,
+                n.node_type.as_str(),
+                n.file_path.as_deref().unwrap_or("")
+            )
+        })
+        .collect();
+    lines.sort();
+    let mut alines: Vec<String> = aliases
+        .iter()
+        .map(|(a, id)| format!("a|{a}|{id}"))
+        .collect();
+    alines.sort();
+    lines.extend(alines);
+    let blob = lines.join("\n");
+    blake3::hash(blob.as_bytes()).to_hex().to_string()
+}
+
+fn load_or_compile_lexicon(
+    cache_dir: Option<&Path>,
+    nodes: &HashMap<String, Node>,
+    aliases: &HashMap<String, String>,
+) -> Result<(LinkLexicon, bool)> {
+    let fp = lexicon_fingerprint(nodes, aliases);
+    if let Some(dir) = cache_dir {
+        let path = dir.join(LEXICON_CACHE_NAME);
+        if path.is_file() {
+            if let Ok(text) = fs::read_to_string(&path) {
+                if let Ok(cached) = serde_json::from_str::<LexiconCacheFile>(&text) {
+                    if cached.version == LEXICON_CACHE_VERSION && cached.fingerprint == fp {
+                        let surfaces = cached
+                            .surfaces
+                            .into_iter()
+                            .map(|s| {
+                                (
+                                    s.surface,
+                                    s.node_id,
+                                    pattern_kind_from_u8(s.kind),
+                                )
+                            })
+                            .collect();
+                        return Ok((
+                            LinkLexicon {
+                                surfaces,
+                                ambiguous: cached.ambiguous,
+                            },
+                            true,
+                        ));
                     }
                 }
             }
         }
     }
+
+    let lexicon = LinkLexicon::compile(nodes, aliases)?;
+    if let Some(dir) = cache_dir {
+        let _ = fs::create_dir_all(dir);
+        let cached = LexiconCacheFile {
+            version: LEXICON_CACHE_VERSION,
+            fingerprint: fp,
+            surfaces: lexicon
+                .surfaces
+                .iter()
+                .map(|(s, id, k)| CachedSurface {
+                    surface: s.clone(),
+                    node_id: id.clone(),
+                    kind: pattern_kind_to_u8(*k),
+                })
+                .collect(),
+            ambiguous: lexicon.ambiguous.clone(),
+        };
+        if let Ok(json) = serde_json::to_string_pretty(&cached) {
+            let path = dir.join(LEXICON_CACHE_NAME);
+            let tmp = dir.join(format!(".{LEXICON_CACHE_NAME}.{}.tmp", std::process::id()));
+            if fs::write(&tmp, json).is_ok() {
+                let _ = fs::rename(&tmp, path);
+            } else {
+                let _ = fs::remove_file(&tmp);
+            }
+        }
+    }
+    Ok((lexicon, false))
+}
+
+/// Append unique related links under `## Related` (create section if missing).
+fn insert_related_links(content: &str, links: &[RelatedInsert]) -> String {
+    if links.is_empty() {
+        return content.to_string();
+    }
+    let existing_targets: HashSet<String> = extract_wikilink_spans(content)
+        .into_iter()
+        .map(|s| s.link.target_node.to_ascii_lowercase())
+        .collect();
+
+    let mut lines_to_add: Vec<String> = Vec::new();
+    let mut seen = HashSet::new();
+    for l in links {
+        let key = l.target_id.to_ascii_lowercase();
+        if existing_targets.contains(&key) || !seen.insert(key) {
+            continue;
+        }
+        // Also skip if the exact markdown already appears
+        let md = format!("[[{}|{}]]", l.target_id, l.surface);
+        let md2 = format!("[[{}]]", l.target_id);
+        if content.contains(&md) || content.contains(&md2) {
+            continue;
+        }
+        lines_to_add.push(format!("- [[{}|{}]]", l.target_id, l.surface));
+    }
+    if lines_to_add.is_empty() {
+        return content.to_string();
+    }
+
+    // Find ## Related (any trailing junk after Related)
+    let mut out = content.to_string();
+    let lower = out.to_ascii_lowercase();
+    if let Some(idx) = lower.find("\n## related") {
+        // Find end of heading line
+        let after_nl = idx + 1;
+        let rest = &out[after_nl..];
+        let line_end = rest.find('\n').map(|i| after_nl + i + 1).unwrap_or(out.len());
+        let insert_at = line_end;
+        let block = format!("{}\n", lines_to_add.join("\n"));
+        out.insert_str(insert_at, &block);
+    } else if let Some(idx) = lower.find("## related") {
+        // Heading at start of file
+        let rest = &out[idx..];
+        let line_end = rest.find('\n').map(|i| idx + i + 1).unwrap_or(out.len());
+        let block = format!("{}\n", lines_to_add.join("\n"));
+        out.insert_str(line_end, &block);
+    } else {
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("\n## Related\n\n");
+        out.push_str(&lines_to_add.join("\n"));
+        out.push('\n');
+    }
+    out
 }
 
 // ── Phase 0: pending ────────────────────────────────────────────────────────
@@ -1266,8 +1564,12 @@ fn plan_discover_for_file(
     lexicon: &LinkLexicon,
     ac: &AhoCorasick,
     report_suggest: bool,
+    style: ApplyStyle,
+    use_graph_priors: bool,
+    neighbors: &HashSet<String>,
     edits: &mut Vec<ApplyEdit>,
     file_ops: &mut HashMap<PathBuf, Vec<SpanReplace>>,
+    related_ops: &mut HashMap<PathBuf, Vec<RelatedInsert>>,
     abs: &Path,
 ) {
     let mask = build_unlinkable_mask(content);
@@ -1276,8 +1578,19 @@ fn plan_discover_for_file(
         .map(|s| s.link.target_node.to_ascii_lowercase())
         .collect();
 
-    // One wrap per target node per file (avoid spam).
+    // One materialisation per target node per file (avoid spam).
     let mut linked_targets: HashSet<String> = HashSet::new();
+
+    // Collect candidates first so graph priors can re-rank before materialising.
+    struct Cand {
+        start: usize,
+        end: usize,
+        node_id: String,
+        kind: PatternKind,
+        surface: String,
+        graph_boost: bool,
+    }
+    let mut cands: Vec<Cand> = Vec::new();
 
     for mat in ac.find_iter(content) {
         let start = mat.start();
@@ -1303,92 +1616,163 @@ fn plan_discover_for_file(
         if existing_targets.contains(&node_id.to_ascii_lowercase()) {
             continue;
         }
-        // Already linked under some surface of this node
-        let surface = &content[start..end];
+        let surface = content[start..end].to_string();
         if existing_targets.contains(&surface.to_ascii_lowercase()) {
             continue;
         }
+        let graph_boost = use_graph_priors && neighbors.contains(node_id);
+        cands.push(Cand {
+            start,
+            end,
+            node_id: node_id.to_string(),
+            kind,
+            surface,
+            graph_boost,
+        });
+        linked_targets.insert(node_id.to_string());
+    }
 
-        let (tier, reason) = match kind {
-            PatternKind::Title | PatternKind::Alias if surface.chars().count() >= 5 => (
-                ApplyTier::Auto,
-                format!("discover unique {:?} mention → `{node_id}`", kind_name(kind)),
-            ),
-            PatternKind::SymbolName if surface.chars().any(|c| c.is_ascii_uppercase()) => (
-                ApplyTier::Auto,
-                format!("discover unique symbol-like mention → `{node_id}`"),
-            ),
-            PatternKind::Title | PatternKind::Alias | PatternKind::Stem | PatternKind::SymbolName => (
-                ApplyTier::Suggest,
+    // Graph-boosted first, then longer surfaces.
+    cands.sort_by(|a, b| {
+        b.graph_boost
+            .cmp(&a.graph_boost)
+            .then_with(|| b.surface.len().cmp(&a.surface.len()))
+            .then_with(|| a.start.cmp(&b.start))
+    });
+
+    // Reset linked_targets for materialisation pass (still one per target).
+    linked_targets.clear();
+
+    for c in cands {
+        if !linked_targets.insert(c.node_id.clone()) {
+            continue;
+        }
+
+        let surface_len = c.surface.chars().count();
+        let mut tier = match c.kind {
+            // Exact unique titles/aliases: 4+ chars is enough (e.g. "Raft").
+            PatternKind::Title | PatternKind::Alias if surface_len >= 4 => ApplyTier::Auto,
+            PatternKind::SymbolName if c.surface.chars().any(|ch| ch.is_ascii_uppercase()) => {
+                ApplyTier::Auto
+            }
+            _ => ApplyTier::Suggest,
+        };
+        // Graph prior: promote weak neighbor hits to AUTO.
+        if c.graph_boost && tier == ApplyTier::Suggest {
+            tier = ApplyTier::Auto;
+        }
+
+        let mut reason = match c.kind {
+            PatternKind::Title | PatternKind::Alias if surface_len >= 4 => {
                 format!(
-                    "discover weak {:?} mention → `{node_id}` (suggest only)",
-                    kind_name(kind)
-                ),
+                    "discover unique {} mention → `{}`",
+                    kind_name(c.kind),
+                    c.node_id
+                )
+            }
+            PatternKind::SymbolName if c.surface.chars().any(|ch| ch.is_ascii_uppercase()) => {
+                format!("discover unique symbol-like mention → `{}`", c.node_id)
+            }
+            _ => format!(
+                "discover weak {} mention → `{}` (suggest only)",
+                kind_name(c.kind),
+                c.node_id
             ),
         };
+        if c.graph_boost {
+            reason.push_str(" [graph-neighbor boost]");
+        }
 
         if tier == ApplyTier::Suggest && !report_suggest {
             continue;
         }
 
-        let after = format!("[[{node_id}|{surface}]]");
-        let before = surface.to_string();
+        let after = format!("[[{}|{}]]", c.node_id, c.surface);
+        let before = c.surface.clone();
 
-        if tier == ApplyTier::Auto {
-            // Avoid overlapping ops
-            let ops = file_ops.entry(abs.to_path_buf()).or_default();
-            if ops.iter().any(|o| spans_overlap(o.start, o.end, start, end)) {
-                edits.push(ApplyEdit {
-                    tier: ApplyTier::Skip,
-                    kind: ApplyKind::DiscoverSkip,
-                    source_id: source.id.clone(),
-                    file_path: Some(rel.into()),
-                    target_id: Some(node_id.into()),
-                    before,
-                    after: None,
-                    reason: "overlaps another planned edit".into(),
-                    written: false,
-                    span: Some((start, end)),
-                });
-                continue;
-            }
-            ops.push(SpanReplace {
-                start,
-                end,
-                replacement: after.clone(),
-                priority: 1,
-            });
-            linked_targets.insert(node_id.to_string());
-            edits.push(ApplyEdit {
-                tier: ApplyTier::Auto,
-                kind: ApplyKind::DiscoverWrap,
-                source_id: source.id.clone(),
-                file_path: Some(rel.into()),
-                target_id: Some(node_id.into()),
-                before,
-                after: Some(after),
-                reason,
-                written: false,
-                span: Some((start, end)),
-            });
-        } else {
+        if tier != ApplyTier::Auto {
             edits.push(ApplyEdit {
                 tier: ApplyTier::Suggest,
-                kind: ApplyKind::DiscoverWrap,
+                kind: match style {
+                    ApplyStyle::Wrap => ApplyKind::DiscoverWrap,
+                    ApplyStyle::Related => ApplyKind::DiscoverRelated,
+                },
                 source_id: source.id.clone(),
                 file_path: Some(rel.into()),
-                target_id: Some(node_id.into()),
+                target_id: Some(c.node_id.clone()),
                 before,
                 after: Some(after),
                 reason,
                 written: false,
-                span: Some((start, end)),
+                span: Some((c.start, c.end)),
             });
-            linked_targets.insert(node_id.to_string());
+            continue;
+        }
+
+        match style {
+            ApplyStyle::Wrap => {
+                let ops = file_ops.entry(abs.to_path_buf()).or_default();
+                if ops
+                    .iter()
+                    .any(|o| spans_overlap(o.start, o.end, c.start, c.end))
+                {
+                    edits.push(ApplyEdit {
+                        tier: ApplyTier::Skip,
+                        kind: ApplyKind::DiscoverSkip,
+                        source_id: source.id.clone(),
+                        file_path: Some(rel.into()),
+                        target_id: Some(c.node_id),
+                        before,
+                        after: None,
+                        reason: "overlaps another planned edit".into(),
+                        written: false,
+                        span: Some((c.start, c.end)),
+                    });
+                    continue;
+                }
+                ops.push(SpanReplace {
+                    start: c.start,
+                    end: c.end,
+                    replacement: after.clone(),
+                    priority: if c.graph_boost { 1 } else { 2 },
+                });
+                edits.push(ApplyEdit {
+                    tier: ApplyTier::Auto,
+                    kind: ApplyKind::DiscoverWrap,
+                    source_id: source.id.clone(),
+                    file_path: Some(rel.into()),
+                    target_id: Some(c.node_id),
+                    before,
+                    after: Some(after),
+                    reason,
+                    written: false,
+                    span: Some((c.start, c.end)),
+                });
+            }
+            ApplyStyle::Related => {
+                related_ops
+                    .entry(abs.to_path_buf())
+                    .or_default()
+                    .push(RelatedInsert {
+                        target_id: c.node_id.clone(),
+                        surface: c.surface.clone(),
+                        priority: if c.graph_boost { 1 } else { 2 },
+                    });
+                edits.push(ApplyEdit {
+                    tier: ApplyTier::Auto,
+                    kind: ApplyKind::DiscoverRelated,
+                    source_id: source.id.clone(),
+                    file_path: Some(rel.into()),
+                    target_id: Some(c.node_id),
+                    before,
+                    after: Some(after),
+                    reason: format!("{reason} (style=related)"),
+                    written: false,
+                    span: None,
+                });
+            }
         }
     }
-
-    let _ = &lexicon.ambiguous; // reserved for future report field
 }
 
 fn kind_name(k: PatternKind) -> &'static str {
@@ -1842,5 +2226,209 @@ mod tests {
         assert_eq!(mask[idx], 0);
         let wiki = s.find("[[").unwrap();
         assert_eq!(mask[wiki], 1);
+    }
+
+    #[test]
+    fn related_style_appends_section() {
+        let (_dir, db, ws) = setup();
+        fs::write(
+            ws.join("docs/concepts/logcompaction.md"),
+            "---\nnode_type: concept\n---\n# Log Compaction\n\nRaft is related here.\n",
+        )
+        .unwrap();
+        let brain_dir = ws.join(".brain");
+        fs::create_dir_all(&brain_dir).unwrap();
+        let report = apply_links(
+            &ws,
+            &db,
+            &ApplyOptions {
+                write: true,
+                dry_run: false,
+                discover: true,
+                style: ApplyStyle::Related,
+                sync_after: false,
+                cache_dir: Some(brain_dir),
+                graph_priors: false,
+                ..ApplyOptions::default()
+            },
+        )
+        .unwrap();
+        let body = fs::read_to_string(ws.join("docs/concepts/logcompaction.md")).unwrap();
+        assert!(
+            body.contains("## Related") && body.contains("docs/concepts/raft"),
+            "body={body} edits={:?}",
+            report.edits
+        );
+        // Original prose left unmarked
+        assert!(body.contains("Raft is related here"));
+        assert!(!body.contains("[[docs/concepts/raft|Raft]] is related"));
+    }
+
+    #[test]
+    fn lexicon_cache_hit_on_second_compile() {
+        let (_dir, db, ws) = setup();
+        let cache = ws.join(".brain");
+        fs::create_dir_all(&cache).unwrap();
+        let nodes: HashMap<_, _> = db
+            .get_all_nodes()
+            .unwrap()
+            .into_iter()
+            .map(|n| (n.id.clone(), n))
+            .collect();
+        let (_, aliases, _) = db.link_resolution_maps().unwrap();
+        let (_lex, hit1) = load_or_compile_lexicon(Some(&cache), &nodes, &aliases).unwrap();
+        assert!(!hit1);
+        let (_lex, hit2) = load_or_compile_lexicon(Some(&cache), &nodes, &aliases).unwrap();
+        assert!(hit2);
+        assert!(cache.join("link_lexicon.json").is_file());
+    }
+
+    #[test]
+    fn insert_related_idempotent() {
+        let base = "# Note\n\nBody.\n";
+        let links = vec![RelatedInsert {
+            target_id: "docs/concepts/raft".into(),
+            surface: "Raft".into(),
+            priority: 1,
+        }];
+        let once = insert_related_links(base, &links);
+        let twice = insert_related_links(&once, &links);
+        assert_eq!(
+            once.matches("docs/concepts/raft").count(),
+            twice.matches("docs/concepts/raft").count()
+        );
+    }
+
+    /// End-to-end: pending WikiLink + target node present → apply rewrites → reindex clears pending.
+    ///
+    /// We insert the target **without** running resolve_pending so the pending row remains
+    /// (mirrors "target now exists, Markdown still short-form").
+    #[test]
+    fn integration_pending_apply_clears_ledger() {
+        use crate::indexer::WorkspaceIndexer;
+        use crate::types::{Node, NodeType};
+
+        let dir = tempdir().unwrap();
+        let ws = dir.path().to_path_buf();
+        let docs = ws.join("docs/concepts");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(
+            docs.join("raft.md"),
+            "---\nnode_type: concept\naliases: [Raft]\n---\n# Raft\n\nSee [[LogCompaction]].\n",
+        )
+        .unwrap();
+        let brain = ws.join(".brain");
+        fs::create_dir_all(&brain).unwrap();
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        let indexer = WorkspaceIndexer::new(db, &ws);
+        indexer.index_workspace().unwrap();
+
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        assert!(
+            db.count_pending_links().unwrap() >= 1,
+            "expected pending after index without target"
+        );
+
+        // Target appears: file on disk + node in DB, but leave pending row intact.
+        fs::write(
+            docs.join("logcompaction.md"),
+            "---\nnode_type: concept\naliases: [LogCompaction]\n---\n# Log Compaction\n\nBody.\n",
+        )
+        .unwrap();
+        let now = 1_700_000_000i64;
+        db.insert_node(&Node {
+            id: "docs/concepts/logcompaction".into(),
+            node_type: NodeType::Concept,
+            title: "Log Compaction".into(),
+            file_path: Some("docs/concepts/logcompaction.md".into()),
+            symbol_hash: None,
+            summary: None,
+            content_hash: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .unwrap();
+        db.replace_node_aliases(
+            "docs/concepts/logcompaction",
+            &["LogCompaction".into(), "Log Compaction".into()],
+        )
+        .unwrap();
+        assert!(
+            db.count_pending_links().unwrap() >= 1,
+            "pending should still be present before apply"
+        );
+
+        let report = apply_links(
+            &ws,
+            &db,
+            &ApplyOptions {
+                write: true,
+                dry_run: false,
+                sync_after: false,
+                cache_dir: Some(brain.clone()),
+                ..ApplyOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            report.written >= 1,
+            "expected rewrite written: {:?}",
+            report.edits
+        );
+        let raft_body = fs::read_to_string(docs.join("raft.md")).unwrap();
+        assert!(
+            raft_body.contains("docs/concepts/logcompaction"),
+            "body={raft_body}"
+        );
+
+        // Full reindex: short-name pending is gone (canonical wiki resolves).
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        let indexer = WorkspaceIndexer::new(db, &ws);
+        indexer.index_workspace().unwrap();
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        let still = db.list_pending_links().unwrap();
+        assert!(
+            !still
+                .iter()
+                .any(|p| p.source_id.contains("raft") && p.raw_target.contains("LogCompaction")),
+            "still pending: {still:?}"
+        );
+    }
+
+    #[test]
+    fn graph_prior_promotes_neighbor() {
+        let (_dir, db, ws) = setup();
+        // Edge raft ↔ logcompaction already from pending setup? only pending, no edge.
+        // Insert explicit edge so graph prior fires for a weak stem-like mention.
+        db.insert_edge(&crate::types::Edge {
+            source_id: "docs/concepts/logcompaction".into(),
+            target_id: "docs/concepts/raft".into(),
+            relation_type: "relates_to".into(),
+            weight: 1.0,
+            decay_rate: 0.0,
+            created_at: 1,
+        })
+        .unwrap();
+        fs::write(
+            ws.join("docs/concepts/logcompaction.md"),
+            "---\nnode_type: concept\n---\n# Log Compaction\n\nRaft matters.\n",
+        )
+        .unwrap();
+        let report = apply_links(
+            &ws,
+            &db,
+            &ApplyOptions {
+                write: false,
+                discover: true,
+                graph_priors: true,
+                ..ApplyOptions::default()
+            },
+        )
+        .unwrap();
+        let boosted = report.edits.iter().any(|e| {
+            e.reason.contains("graph-neighbor")
+                && e.target_id.as_deref() == Some("docs/concepts/raft")
+        });
+        assert!(boosted, "edits={:?}", report.edits);
     }
 }

@@ -13,8 +13,8 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use rustbrain_core::{
     bootstrap_workspace, create_note, normalize_target_arg, run_doctor, run_doctor_with,
-    ApplyOptions, BootstrapMode, BootstrapOptions, Brain, DoctorOptions, GlobalRegistry,
-    GraphDirection, GraphOptions, NoteNewOptions, NodeType, QueryOptions,
+    ApplyOptions, ApplyStyle, BootstrapMode, BootstrapOptions, Brain, DoctorOptions,
+    GlobalRegistry, GraphDirection, GraphOptions, NoteNewOptions, NodeType, QueryOptions,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -174,6 +174,12 @@ enum Commands {
         /// With `--apply --write`: skip automatic sync after writes
         #[arg(long, default_value_t = false)]
         no_sync: bool,
+        /// With `--apply --discover`: `wrap` (default, inline WikiLink) or `related` (## Related)
+        #[arg(long, default_value = "wrap")]
+        style: String,
+        /// With `--apply --discover`: disable graph-neighbor boost for scoring
+        #[arg(long, default_value_t = false)]
+        no_graph_priors: bool,
         /// Optional path or node id (auto-link focus, or apply source filter)
         #[arg(value_name = "TARGET")]
         target: Option<PathBuf>,
@@ -607,6 +613,8 @@ fn run() -> Result<ExitCode> {
             force,
             limit,
             no_sync,
+            style,
+            no_graph_priors,
             target,
             json,
         } => {
@@ -624,6 +632,9 @@ fn run() -> Result<ExitCode> {
                 if write && dry_run {
                     bail!("`--write` and `--dry-run` conflict; omit one");
                 }
+                let style = ApplyStyle::parse(&style).ok_or_else(|| {
+                    anyhow::anyhow!("invalid --style '{style}'. use: wrap or related")
+                })?;
                 let opts = ApplyOptions {
                     write,
                     dry_run: !write || dry_run,
@@ -633,6 +644,9 @@ fn run() -> Result<ExitCode> {
                     target: target.map(|p| p.to_string_lossy().to_string()),
                     sync_after: !no_sync,
                     report_suggest: true,
+                    style,
+                    graph_priors: !no_graph_priors,
+                    cache_dir: None, // Brain::apply_links fills .brain/
                 };
                 let report = brain.apply_links(&opts)?;
                 if json {

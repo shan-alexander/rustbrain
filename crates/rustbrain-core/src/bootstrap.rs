@@ -1071,6 +1071,7 @@ Shows **who links to whom** (ASCII tree or JSON). Use when you need edge types/w
 | `links --apply --dry-run` | Plan unique pending WikiLink normalizations (no writes) |
 | `links --apply --write` | Apply AUTO edits atomically; auto-sync refreshes pending/edges |
 | `links --apply --discover --dry-run` | + Aho–Corasick unmarked mentions (suggest/auto tiers) |
+| `links --apply --discover --write --style related` | Append under `## Related` instead of wrapping prose |
 | `links --apply --write --json` | Full report for agents |
 
 Never invents notes. Ambiguous / unresolved / generated files are skipped unless `--force`.
