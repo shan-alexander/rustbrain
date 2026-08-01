@@ -12,7 +12,7 @@
 //! `.rustbrainignore` (when present) are ignored.
 
 use crate::error::{BrainError, Result};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 /// Configuration for [`watch_workspace`].
@@ -42,6 +42,7 @@ pub fn watch_workspace(workspace: impl AsRef<Path>, config: WatchConfig) -> Resu
     use crate::ignore::IgnoreSet;
     use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
     use std::collections::HashSet;
+    use std::path::PathBuf;
     use std::sync::mpsc::{self, RecvTimeoutError};
     use std::time::Instant;
 
