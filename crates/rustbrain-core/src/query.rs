@@ -146,10 +146,23 @@ impl Database {
             if prepared.used_or {
                 reasons.push("fts:or".into());
             }
-            // Hub boost for root README node.
+            // Hub boost for root README / CHANGELOG / planning files.
             if node.id == "readme" || node.file_path.as_deref() == Some("README.md") {
                 score *= 1.2;
                 reasons.push("hub:readme".into());
+            }
+            if node.id == crate::hubs::HUB_CHANGELOG
+                || node
+                    .file_path
+                    .as_deref()
+                    .is_some_and(|p| p.eq_ignore_ascii_case("CHANGELOG.md"))
+            {
+                score *= 1.15;
+                reasons.push("hub:changelog".into());
+            }
+            if node.id == crate::hubs::HUB_ROADMAP || node.id == crate::hubs::HUB_BACKLOG {
+                score *= 1.1;
+                reasons.push(format!("hub:{}", node.id));
             }
 
             // Title / id token hits + multi-token coverage bonus

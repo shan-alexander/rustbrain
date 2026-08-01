@@ -978,6 +978,8 @@ rustbrain doctor
 
 ```bash
 rustbrain context "why <decision> / how does <feature> work"   # orient (content pack)
+rustbrain context "what shipped" / "changelog 0.3"             # CHANGELOG hub when present
+rustbrain context "roadmap priorities"                         # ROADMAP/BACKLOG hubs if present
 rustbrain graph docs/adr/….md                                  # inspect who links where
 rustbrain query "topic" --scores                               # search notes
 # preferred note creation — see below (scaffold, then edit)
@@ -1141,13 +1143,38 @@ Link **code → notes** in rustdoc: `/// See [[docs/adr/my-adr]]` (sync creates 
 | Path | Purpose |
 |------|---------|
 | `README.md` | Hub node `readme` (quality of harvest depends on this) |
+| **`CHANGELOG.md`** | Hub node **`changelog`** — Rust/crates.io standard ([Keep a Changelog](https://keepachangelog.com/) + SemVer). Indexed on `sync`; use for "what shipped / unreleased" |
+| `ROADMAP.md` / `BACKLOG.md` (optional) | Hubs `roadmap` / `backlog` for prioritization & HITL planning |
 | `docs/goals/from-readme.md` | **Algorithmic** harvest of README sections (not an LLM) |
 | `docs/goals/`, `docs/adr/`, `docs/analysis/`, … | Hand-written project knowledge |
-| `docs/analysis/` | Dated investigations (`note new --type analysis`) |
+| `docs/analysis/` | Dated investigations (`note new --type analysis`) — good for epic digests |
 | `docs/implementation/module-map.generated.md` | AST symbol list |
 | `AGENTS.md` | This file — agent ops for *this* repo |
 | `.brain/` | Local index — **never commit** |
 | `.rustbrainignore` | Extra index skips |
+
+### CHANGELOG (Rust community standard)
+
+If this repo publishes a crate (or you want ship history for agents):
+
+1. Keep a root **`CHANGELOG.md`** in [Keep a Changelog](https://keepachangelog.com/) form (`## [x.y.z] - YYYY-MM-DD`, `## [Unreleased]`).
+2. Run **`rustbrain sync`** after edits — rustbrain maps it to stable id **`changelog`** (type `reference`), aliases versions / "releases" / "unreleased", and boosts it for release-oriented `query` / `context`.
+3. Prefer **truthful ship notes** over inventing history. Agents: `rustbrain context "what changed in 0.3"` / `query changelog --scores`.
+
+Doctor reports `no_changelog` (info) when a `Cargo.toml` exists but no CHANGELOG; `changelog_latest` when the hub is healthy.
+
+### HITL planning (roadmaps, epics, status)
+
+| Need | Where it lives | rustbrain type / hub |
+|------|----------------|----------------------|
+| Shipped / versioned history | `CHANGELOG.md` | hub `changelog` |
+| Future direction | `ROADMAP.md` or `docs/goals/` | hub `roadmap` or `goal` |
+| Unordered work queue | `BACKLOG.md` or goals | hub `backlog` or `goal` |
+| Time-bound dig / epic write-up | `docs/analysis/` | `analysis` |
+| Decision | `docs/adr/` | `adr` |
+| Status of a slice | short analysis or goal note + WikiLinks | do **not** invent kanban columns |
+
+Query: `context "roadmap priorities"`, `context "what shipped"`, `graph changelog`.
 
 ---
 
@@ -1158,6 +1185,7 @@ Link **code → notes** in rustdoc: `/// See [[docs/adr/my-adr]]` (sync creates 
   then edit the created file, then `rustbrain sync`. Passing a full body skips the
   type template and often produces thinner structure.
 - Prefer short factual ADRs over chat logs.
+- **Changelog is ground truth for releases** — update it when you ship; never invent entries.
 - Link notes→code: `symbol:Name` / `symbol:crate::mod::Name` / `[[symbol:…]]`.
 - Link code→notes in rustdoc: `/// See [[docs/adr/…]]` (becomes `doc_links` on sync).
 - Frontmatter when useful:
@@ -1172,6 +1200,7 @@ Link **code → notes** in rustdoc: `/// See [[docs/adr/my-adr]]` (sync creates 
 
 - Do **not** invent ADR history. Do **not** commit `.brain/`.
 - After improving README: `rustbrain bootstrap --yes --write --force && rustbrain sync`.
+- After updating CHANGELOG: `rustbrain sync` (no harvest needed).
 
 ---
 

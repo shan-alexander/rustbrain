@@ -162,10 +162,17 @@ fn list_note_nodes(db: &Database) -> Result<Vec<Node>> {
             }
         }
     }
-    // Root README hub is a goal-like note
-    if let Some(n) = db.get_node("readme")? {
-        if !nodes.iter().any(|x| x.id == "readme") {
-            nodes.push(n);
+    // Root project hubs (README / CHANGELOG / optional planning docs)
+    for id in [
+        crate::hubs::HUB_README,
+        crate::hubs::HUB_CHANGELOG,
+        crate::hubs::HUB_ROADMAP,
+        crate::hubs::HUB_BACKLOG,
+    ] {
+        if let Some(n) = db.get_node(id)? {
+            if !nodes.iter().any(|x| x.id == id) {
+                nodes.push(n);
+            }
         }
     }
     Ok(nodes)

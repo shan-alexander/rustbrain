@@ -223,6 +223,7 @@ pub fn run_doctor_with(workspace: &Path, opts: &DoctorOptions) -> Result<DoctorR
 
     // --- README / harvest / knowledge density (info-level; never invent content) ---
     assess_readme_and_harvest(&workspace, &db, &mut findings)?;
+    assess_changelog(&workspace, &db, &mut findings)?;
     assess_knowledge_density(&workspace, &db, note_count, symbol_count, &mut findings)?;
 
     let has_goal = by_type.iter().any(|(t, c)| t == NodeType::Goal.as_str() && *c > 0);
@@ -419,6 +420,81 @@ fn assess_readme_and_harvest(
             message: "README.md present but no docs/goals/from-readme.md — run `rustbrain bootstrap --yes --write` (or --force) then sync"
                 .into(),
         });
+    }
+
+    Ok(())
+}
+
+/// Keep a Changelog / SemVer habit (Rust community standard for published crates).
+///
+/// Info-level only: absence is normal for apps and private tools; presence should
+/// be indexed as hub node `changelog` after sync.
+fn assess_changelog(
+    workspace: &Path,
+    db: &Database,
+    findings: &mut Vec<DoctorFinding>,
+) -> Result<()> {
+    let candidates = ["CHANGELOG.md", "CHANGES.md", "HISTORY.md"];
+    let path = candidates
+        .iter()
+        .map(|n| workspace.join(n))
+        .find(|p| p.is_file());
+
+    let Some(path) = path else {
+        // Soft suggestion for library-shaped trees (Cargo.toml present).
+        if workspace.join("Cargo.toml").is_file() {
+            findings.push(DoctorFinding {
+                severity: DoctorSeverity::Info,
+                code: "no_changelog".into(),
+                message: "no root CHANGELOG.md — Rust/crates.io convention is Keep a Changelog + SemVer; when present, rustbrain indexes it as hub `changelog` for release/status context. Optional for apps"
+                    .into(),
+            });
+        }
+        return Ok(());
+    };
+
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mass = body_mass(&text);
+    let has_version_heading = text.lines().any(|l| {
+        let t = l.trim();
+        t.starts_with("## [") || t.starts_with("##[") || t.eq_ignore_ascii_case("## unreleased")
+    });
+
+    if mass < 80 {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "sparse_changelog".into(),
+            message: format!(
+                "{} is thin (~{mass} non-ws chars) — release context will be weak until you record shipped changes",
+                path.file_name().and_then(|n| n.to_str()).unwrap_or("CHANGELOG.md")
+            ),
+        });
+    } else if !has_version_heading {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "changelog_no_versions".into(),
+            message: "CHANGELOG present but no `## [x.y.z]` / Unreleased headings detected — Keep a Changelog format improves FTS and hub summaries"
+                .into(),
+        });
+    }
+
+    if db.get_node(crate::hubs::HUB_CHANGELOG)?.is_none() {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "changelog_not_indexed".into(),
+            message: "CHANGELOG.md exists but hub node `changelog` missing — run `rustbrain sync`"
+                .into(),
+        });
+    } else if let Some(node) = db.get_node(crate::hubs::HUB_CHANGELOG)? {
+        if let Some(sum) = &node.summary {
+            if !sum.is_empty() {
+                findings.push(DoctorFinding {
+                    severity: DoctorSeverity::Info,
+                    code: "changelog_latest".into(),
+                    message: format!("changelog hub indexed; latest section summary: {sum}"),
+                });
+            }
+        }
     }
 
     Ok(())

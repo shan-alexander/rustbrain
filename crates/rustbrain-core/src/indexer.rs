@@ -121,12 +121,10 @@ impl WorkspaceIndexer {
             return Ok(());
         }
 
-        let is_readme_hub = is_root_readme(&rel);
-        let node_id = if is_readme_hub {
-            "readme".to_string()
-        } else {
-            node_id_from_rel_path(&rel)
-        };
+        let hub = crate::hubs::detect_project_hub(&rel);
+        let node_id = hub
+            .map(|h| h.node_id().to_string())
+            .unwrap_or_else(|| node_id_from_rel_path(&rel));
 
         if let Some(existing) = self.db.get_content_hash(&node_id)? {
             if existing == hash {
@@ -156,25 +154,39 @@ impl WorkspaceIndexer {
                     .as_ref()
                     .and_then(|fm| fm.node_type.as_deref())
                     .and_then(NodeType::parse);
-                if is_readme_hub {
-                    // Root README is the project hub; default to Goal unless author overrides.
-                    parsed.unwrap_or(NodeType::Goal)
-                } else {
-                    parsed.unwrap_or(NodeType::Concept)
+                match hub {
+                    // Root README is the project front door; default to Goal unless author overrides.
+                    Some(crate::hubs::ProjectHub::Readme) => parsed.unwrap_or(NodeType::Goal),
+                    // Keep a Changelog / ROADMAP / BACKLOG: project-level reference docs.
+                    Some(
+                        crate::hubs::ProjectHub::Changelog
+                        | crate::hubs::ProjectHub::Roadmap
+                        | crate::hubs::ProjectHub::Backlog,
+                    ) => parsed.unwrap_or(NodeType::Reference),
+                    None => parsed.unwrap_or(NodeType::Concept),
                 }
             }
             #[cfg(not(feature = "obsidian"))]
             {
-                if is_readme_hub {
-                    NodeType::Goal
-                } else {
-                    NodeType::Concept
+                match hub {
+                    Some(crate::hubs::ProjectHub::Readme) => NodeType::Goal,
+                    Some(
+                        crate::hubs::ProjectHub::Changelog
+                        | crate::hubs::ProjectHub::Roadmap
+                        | crate::hubs::ProjectHub::Backlog,
+                    ) => NodeType::Reference,
+                    None => NodeType::Concept,
                 }
             }
         };
 
         let now = Utc::now().timestamp();
-        let summary = first_substantive_line(body);
+        let summary = if hub == Some(crate::hubs::ProjectHub::Changelog) {
+            crate::hubs::changelog_latest_heading(body)
+                .unwrap_or_else(|| first_substantive_line(body))
+        } else {
+            first_substantive_line(body)
+        };
 
         let tags: Vec<String> = {
             #[cfg(feature = "obsidian")]
@@ -260,12 +272,20 @@ impl WorkspaceIndexer {
             extra_aliases.push(stem.to_string());
         }
         extra_aliases.push(title.clone());
-        if is_readme_hub {
-            extra_aliases.push("readme".into());
-            extra_aliases.push("hub".into());
-            extra_aliases.push("home".into());
-            if let Some(name) = self.workspace.file_name().and_then(|n| n.to_str()) {
-                extra_aliases.push(name.to_string());
+        if let Some(h) = hub {
+            for a in h.aliases() {
+                extra_aliases.push((*a).to_string());
+            }
+            if h == crate::hubs::ProjectHub::Readme {
+                if let Some(name) = self.workspace.file_name().and_then(|n| n.to_str()) {
+                    extra_aliases.push(name.to_string());
+                }
+            }
+            if h == crate::hubs::ProjectHub::Changelog {
+                // Recent SemVer labels from Keep a Changelog headings → FTS aliases.
+                for v in crate::hubs::changelog_version_aliases(body, 8) {
+                    extra_aliases.push(v);
+                }
             }
         }
 
@@ -618,20 +638,6 @@ fn strip_rustdoc_prefixes(doc: &str) -> String {
         out.push('\n');
     }
     out
-}
-
-fn is_root_readme(rel: &Path) -> bool {
-    let comps: Vec<_> = rel
-        .components()
-        .filter(|c| matches!(c, std::path::Component::Normal(_)))
-        .collect();
-    if comps.len() != 1 {
-        return false;
-    }
-    rel.file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n.eq_ignore_ascii_case("README.md"))
-        .unwrap_or(false)
 }
 
 fn rustbrainignore_requests_gitignore(workspace: &Path) -> bool {
@@ -990,5 +996,46 @@ impl StorageEngine {
         .unwrap();
         let s2 = indexer.index_workspace().unwrap();
         assert!(s2.edges_created >= 1 || indexer.database().count_edges().unwrap() >= 1);
+    }
+
+    #[test]
+    fn root_changelog_indexes_as_stable_hub() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [0.3.15] - 2026-07-31\n\n### Added\n- changelog hub\n\n## [0.3.14] - 2026-07-30\n\n### Fixed\n- prior\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Demo\n\nA crate.\n").unwrap();
+        let brain = dir.path().join(".brain");
+        std::fs::create_dir_all(&brain).unwrap();
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        let indexer = WorkspaceIndexer::new(db, dir.path());
+        indexer.index_workspace().unwrap();
+
+        let node = indexer
+            .database()
+            .get_node(crate::hubs::HUB_CHANGELOG)
+            .unwrap()
+            .expect("changelog hub");
+        assert_eq!(node.node_type, NodeType::Reference);
+        assert_eq!(node.file_path.as_deref(), Some("CHANGELOG.md"));
+        assert!(
+            node.summary
+                .as_deref()
+                .is_some_and(|s| s.contains("0.3.15")),
+            "summary={:?}",
+            node.summary
+        );
+        // Version alias for FTS resolution
+        let hits = indexer
+            .database()
+            .search_ranked("0.3.15", &crate::query::QueryOptions::default())
+            .unwrap();
+        assert!(
+            hits.iter().any(|h| h.node.id == crate::hubs::HUB_CHANGELOG),
+            "hits={:?}",
+            hits.iter().map(|h| &h.node.id).collect::<Vec<_>>()
+        );
     }
 }

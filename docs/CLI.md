@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.14)
+# rustbrain CLI reference (v0.3.15)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.14 --locked
+# or pin: cargo install rustbrain --version 0.3.15 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -28,7 +28,7 @@ setup ──► (or: init ──► bootstrap ──► sync ──► doctor)
 | One-shot | `setup --yes` | init + bootstrap + sync + doctor (+ `AGENTS.md`) |
 | Empty store | `init` | Creates `.brain/db.sqlite` only |
 | Mature repo seed | `bootstrap` | Docs tree + ignore + README/AST + **AGENTS.md** |
-| Compile notes → graph | `sync` | FTS + edges + `graph.mmap` |
+| Compile notes → graph | `sync` | FTS + edges + `graph.mmap` (includes root `CHANGELOG.md` → hub `changelog`) |
 | Inspect structure | `graph` | Neighborhood tree / stats (ASCII or JSON) |
 | Health | `doctor` | Pending links, ratios, exit codes |
 

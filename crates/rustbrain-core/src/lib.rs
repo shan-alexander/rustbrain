@@ -51,6 +51,7 @@ pub mod error;
 pub mod exporter;
 pub mod fts;
 pub mod graph;
+pub mod hubs;
 pub mod id;
 pub mod ignore;
 pub mod indexer;
@@ -81,6 +82,11 @@ pub use bootstrap::{
 pub use brain::{find_brain_dir, Brain};
 pub use context::ContextOptions;
 pub use fts::{is_generic_topic, prepare_search_query, tokenize_query, PreparedQuery};
+pub use hubs::{
+    changelog_latest_heading, changelog_version_aliases, detect_project_hub, is_hub_node_id,
+    is_planning_intent, is_release_intent, ProjectHub, HUB_BACKLOG, HUB_CHANGELOG, HUB_README,
+    HUB_ROADMAP,
+};
 pub use graph::{
     graph_stats, neighborhood, resolve_graph_target, GraphDirection, GraphHopEdge, GraphHub,
     GraphNeighborhood, GraphNodeRef, GraphOptions, GraphStats,

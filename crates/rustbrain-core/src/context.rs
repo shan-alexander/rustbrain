@@ -12,6 +12,7 @@
 
 use crate::error::Result;
 use crate::fts::{is_generic_topic, prepare_search_query, tokenize_query};
+use crate::hubs::{is_planning_intent, is_release_intent, HUB_BACKLOG, HUB_CHANGELOG, HUB_README, HUB_ROADMAP};
 use crate::query::{QueryOptions, RankedHit};
 use crate::storage::Database;
 use crate::types::{ContextBundle, ContextNode, ContextRole, Node, NodeType};
@@ -153,9 +154,19 @@ pub fn assemble_context(
     let qopts = opts.seed_query_opts();
     let mut seeds = db.search_ranked(prompt, &qopts)?;
     let generic = is_generic_topic(&query_tokens);
-    // Soft / empty retrieval → inject README hub + harvested goals (cold-start agents).
-    if seeds.is_empty() || generic {
-        inject_hub_seeds(db, &mut seeds, opts)?;
+    let release_intent = is_release_intent(&query_tokens);
+    let planning_intent = is_planning_intent(&query_tokens);
+    let cold_start = seeds.is_empty() || generic;
+    // Soft / empty retrieval → inject project hubs (README, CHANGELOG, …).
+    if cold_start || release_intent || planning_intent {
+        inject_hub_seeds(
+            db,
+            &mut seeds,
+            opts,
+            release_intent,
+            planning_intent,
+            cold_start,
+        )?;
     }
 
     let mut candidates: Vec<Candidate> = Vec::new();
@@ -196,8 +207,8 @@ pub fn assemble_context(
     // If filters wiped everything (e.g. only template matched), hub-inject again.
     if candidates.is_empty() {
         let mut hub_hits = Vec::new();
-        inject_hub_seeds(db, &mut hub_hits, opts)?;
-        for hit in hub_hits.into_iter().take(4) {
+        inject_hub_seeds(db, &mut hub_hits, opts, true, true, true)?;
+        for hit in hub_hits.into_iter().take(6) {
             if !opts.allows_pack(&hit.node.node_type, ContextRole::Seed) {
                 continue;
             }
@@ -342,6 +353,12 @@ pub fn assemble_context(
         {
             continue;
         }
+        // Don't double-pack near-identical changelog paths if aliases collide.
+        if cand.node.id == HUB_CHANGELOG
+            && packed.iter().any(|n| n.id == HUB_CHANGELOG)
+        {
+            continue;
+        }
         // Drop near-duplicate body text (harvested clones of the same prose).
         if let Some(ex) = &cand.excerpt {
             if packed_excerpts
@@ -439,19 +456,36 @@ fn symbol_neighbor_quality(node: &Node, query_tokens: &[String]) -> SymbolQualit
     SymbolQuality::Keep { boost: 1.0 }
 }
 
-/// Soft-inject README hub + common bootstrap goals when FTS is empty or generic.
+/// Soft-inject project hubs when FTS is empty, generic, or intent-matched.
 fn inject_hub_seeds(
     db: &Database,
     seeds: &mut Vec<RankedHit>,
     opts: &ContextOptions,
+    release_intent: bool,
+    planning_intent: bool,
+    cold_start: bool,
 ) -> Result<()> {
     let existing: HashSet<String> = seeds.iter().map(|h| h.node.id.clone()).collect();
-    let hubs = [
-        ("readme", 4.5_f32),
-        ("docs/goals/from-readme", 3.8),
-        ("docs/implementation/module-map.generated", 2.2),
-        ("docs/goals/readme", 1.5),
-    ];
+    let mut hubs: Vec<(&str, f32)> = Vec::new();
+    if cold_start {
+        hubs.extend([
+            (HUB_README, 4.5_f32),
+            ("docs/goals/from-readme", 3.8),
+            ("docs/implementation/module-map.generated", 2.2),
+            ("docs/goals/readme", 1.5),
+        ]);
+    }
+    if release_intent || cold_start {
+        // Keep a Changelog is ground truth for "what shipped".
+        hubs.push((HUB_CHANGELOG, if release_intent { 5.0 } else { 3.2 }));
+    }
+    if planning_intent || cold_start {
+        hubs.push((HUB_ROADMAP, if planning_intent { 4.6 } else { 2.4 }));
+        hubs.push((HUB_BACKLOG, if planning_intent { 4.4 } else { 2.2 }));
+    }
+    let mut seen = HashSet::new();
+    hubs.retain(|(id, _)| seen.insert(*id));
+
     for (id, score) in hubs {
         if existing.contains(id) {
             continue;
@@ -466,7 +500,7 @@ fn inject_hub_seeds(
             seeds.push(RankedHit {
                 node,
                 score,
-                reasons: vec!["hub-fallback".into()],
+                reasons: vec![format!("hub-fallback:{id}")],
             });
         }
     }
@@ -636,6 +670,8 @@ pub struct WorkspaceHit {
 mod tests {
     use super::*;
     use crate::brain::Brain;
+    use crate::indexer::WorkspaceIndexer;
+    use crate::storage::Database;
     use tempfile::tempdir;
 
     #[test]
@@ -747,6 +783,43 @@ mod tests {
                 .iter()
                 .map(|n| (&n.id, &n.excerpt))
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn release_prompt_prefers_changelog_hub() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("README.md"),
+            "# Demo\n\nShip notes live in the changelog.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [1.2.3] - 2026-01-01\n\n### Added\n- important feature alpha\n",
+        )
+        .unwrap();
+        let brain = dir.path().join(".brain");
+        std::fs::create_dir_all(&brain).unwrap();
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        let indexer = WorkspaceIndexer::new(db, dir.path());
+        indexer.index_workspace().unwrap();
+        let db = Database::open(brain.join("db.sqlite")).unwrap();
+        let ctx = assemble_context(
+            &db,
+            &brain,
+            "what shipped in the changelog release",
+            &ContextOptions {
+                max_tokens: 800,
+                hop_depth: 0,
+                ..ContextOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            ctx.nodes.iter().any(|n| n.id == "changelog"),
+            "expected changelog hub packed; nodes={:?}",
+            ctx.nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
         );
     }
 

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.15] - 2026-07-31
+
+### Added — CHANGELOG / planning hubs (Rust community standards)
+
+- Root **`CHANGELOG.md`** (also `CHANGES.md` / `HISTORY.md`) indexes as stable hub **`changelog`**
+  (`reference`): Keep a Changelog headings → summary + SemVer aliases; FTS/query boost;
+  context inject for release intent (`what shipped`, version tokens, `unreleased`, …).
+- Optional **`ROADMAP.md`** / **`BACKLOG.md`** → hubs `roadmap` / `backlog` for HITL prioritization.
+- Doctor infos: `no_changelog` (when `Cargo.toml` present), `sparse_changelog`,
+  `changelog_no_versions`, `changelog_not_indexed`, `changelog_latest`.
+- AGENTS.md cookbook documents CHANGELOG as ship-history ground truth and planning note map.
+- Library: `hubs` module (`ProjectHub`, `HUB_CHANGELOG`, `is_release_intent`, …).
+
 ## [0.3.14] - 2026-07-31
 
 ### Improved — apply discover + watch polish (try-harder)
