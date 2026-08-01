@@ -285,6 +285,23 @@ impl Brain {
         }
         Ok(report)
     }
+
+    /// k-hop neighborhood around a node (path, id, title, or `symbol:…`).
+    ///
+    /// Uses SQLite edges (relation types preserved). Prefer for inspection;
+    /// use [`Self::context_for_prompt`] when packing content for agents.
+    pub fn graph_neighborhood(
+        &self,
+        target: &str,
+        opts: &crate::graph::GraphOptions,
+    ) -> Result<crate::graph::GraphNeighborhood> {
+        crate::graph::neighborhood(&self.db, target, opts)
+    }
+
+    /// Aggregate node/edge counts, relation breakdown, and high-degree hubs.
+    pub fn graph_stats(&self) -> Result<crate::graph::GraphStats> {
+        crate::graph::graph_stats(&self.db)
+    }
 }
 
 fn canonicalize_or_owned(path: &Path) -> Result<PathBuf> {

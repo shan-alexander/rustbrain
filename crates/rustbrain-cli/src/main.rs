@@ -13,8 +13,8 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use rustbrain_core::{
     bootstrap_workspace, create_note, normalize_target_arg, run_doctor, run_doctor_with,
-    BootstrapMode, BootstrapOptions, Brain, DoctorOptions, GlobalRegistry, NoteNewOptions,
-    NodeType, QueryOptions,
+    BootstrapMode, BootstrapOptions, Brain, DoctorOptions, GlobalRegistry, GraphDirection,
+    GraphOptions, NoteNewOptions, NodeType, QueryOptions,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -38,6 +38,7 @@ Examples:
   rustbrain setup --yes
   rustbrain sync
   rustbrain doctor
+  rustbrain graph docs/concepts/foo.md
   rustbrain context \"why <decision>\"
   rustbrain query \"topic\" --scores
 
@@ -191,6 +192,39 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         all_types: bool,
         /// Workspace root containing `.brain/`
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+    },
+    /// Inspect graph neighborhood (ASCII tree or JSON) or print graph stats
+    Graph {
+        /// Node id, path, title, or `symbol:Name` (omit for workspace graph stats)
+        #[arg(value_name = "TARGET")]
+        target: Option<String>,
+        /// Expansion depth (default 1 = direct neighbors)
+        #[arg(long, default_value_t = 1)]
+        hops: usize,
+        /// Edge direction: `both` (default), `out`, or `in`
+        #[arg(long, default_value = "both")]
+        direction: String,
+        /// Hide soft `auto_*` edges
+        #[arg(long, default_value_t = false)]
+        no_auto: bool,
+        /// Hide symbol neighbors
+        #[arg(long, default_value_t = false)]
+        no_symbols: bool,
+        /// Only these neighbor types (comma-separated)
+        #[arg(long, value_name = "TYPES")]
+        r#type: Option<String>,
+        /// Max edges to show (default 200)
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
+        /// JSON output (agents/tools)
+        #[arg(long, default_value_t = false)]
+        json: bool,
+        /// Force stats summary even when TARGET is set
+        #[arg(long, default_value_t = false)]
+        stats: bool,
+        /// Workspace root (walks parents for `.brain`)
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
     },
@@ -737,6 +771,72 @@ fn run() -> Result<ExitCode> {
                         println!("   summary: {sum}");
                     }
                 }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Graph {
+            target,
+            hops,
+            direction,
+            no_auto,
+            no_symbols,
+            r#type,
+            limit,
+            json,
+            stats,
+            workspace,
+        } => {
+            let brain = Brain::open(&workspace).with_context(|| {
+                format!(
+                    "no brain found at {} or parents. run `rustbrain setup --yes` or `rustbrain sync`",
+                    workspace.display()
+                )
+            })?;
+
+            // No target → workspace stats only.
+            if target.is_none() {
+                let report = brain.graph_stats()?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print!("{}", report.to_ascii());
+                    println!(
+                        "tip: `rustbrain graph <path|id|title|symbol:Name> [--hops N] [--json]`"
+                    );
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            // Optional stats header before neighborhood (text mode only).
+            if stats && !json {
+                let report = brain.graph_stats()?;
+                print!("{}", report.to_ascii());
+                println!();
+            }
+
+            let target = target.expect("checked above");
+
+            let dir = GraphDirection::parse(&direction).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "invalid --direction '{direction}'. use: both, out, or in"
+                )
+            })?;
+            let mut opts = GraphOptions {
+                hops: hops.max(1),
+                include_auto: !no_auto,
+                include_symbols: !no_symbols,
+                direction: dir,
+                max_edges: limit.max(1),
+                type_filter: None,
+            };
+            if let Some(types) = r#type {
+                opts.type_filter = Some(parse_types_list(&types)?);
+            }
+            let nb = brain.graph_neighborhood(&target, &opts)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&nb)?);
+            } else {
+                print!("{}", nb.to_ascii());
             }
             Ok(ExitCode::SUCCESS)
         }

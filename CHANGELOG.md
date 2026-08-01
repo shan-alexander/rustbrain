@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.12] - 2026-07-31
+
+### Added — `rustbrain graph` (P1 neighborhood CLI)
+
+- **`rustbrain graph [TARGET]`** — inspect the knowledge graph:
+  - **No target:** workspace stats (counts by type/relation, high-degree hubs)
+  - **With target:** k-hop neighborhood as ASCII tree (relation, weight, direction)
+  - Target resolution: node id, path (`docs/…md`), exact/unique title, `symbol:Name`
+- Flags: `--hops`, `--direction both|out|in`, `--no-auto`, `--no-symbols`, `--type`,
+  `--limit`, `--json`, `--stats`, `-w`
+- Library: `graph` module — `neighborhood`, `graph_stats`, `GraphOptions`,
+  `Brain::graph_neighborhood` / `Brain::graph_stats`
+- Complements `context` (content pack) with **structure** inspection for agents/humans
+
+### Documentation / decision — JSON stack (serde vs jshift)
+
+- Inventory of all `serde_json` / serde-derive / optional jshift usage.
+- Criterion harness [`crates/json-stack-bench`](crates/json-stack-bench): workspace markers,
+  doctor pretty JSON, brainbundle full I/O, large sparse path get, in-place field patch.
+- **Result:** keep **serde_json** for production full encode/decode/pretty CLI and bundles;
+  keep **jshift** optional for sparse path / in-place mutate only. Not a wholesale replace.
+  Write-up: [`docs/JSON_STACK.md`](docs/JSON_STACK.md).
+- Workspace pin `jshift` **0.1 → 0.7** (mutator API unchanged).
+
 ## [0.3.11] - 2026-07-31
 
 ### Documentation

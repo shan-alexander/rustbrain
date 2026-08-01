@@ -34,7 +34,7 @@
 //! | `obsidian` | yes | WikiLinks, frontmatter, Canvas |
 //! | `mmap` | yes | CSR `graph.mmap` |
 //! | `watch` | no | Debounced filesystem watcher |
-//! | `jshift` | no | In-place JSON helpers |
+//! | `jshift` | no | Sparse path / in-place JSON helpers (not a serde_json replacement; see `docs/JSON_STACK.md`) |
 //! | `full` | no | All optional features |
 
 #![warn(missing_docs)]
@@ -49,6 +49,7 @@ pub mod doctor;
 pub mod error;
 pub mod exporter;
 pub mod fts;
+pub mod graph;
 pub mod id;
 pub mod ignore;
 pub mod indexer;
@@ -76,6 +77,10 @@ pub use bootstrap::{
 pub use brain::{find_brain_dir, Brain};
 pub use context::ContextOptions;
 pub use fts::{is_generic_topic, prepare_search_query, tokenize_query, PreparedQuery};
+pub use graph::{
+    graph_stats, neighborhood, resolve_graph_target, GraphDirection, GraphHopEdge, GraphHub,
+    GraphNeighborhood, GraphNodeRef, GraphOptions, GraphStats,
+};
 pub use doctor::{run_doctor, run_doctor_with, DoctorFinding, DoctorOptions, DoctorReport, DoctorSeverity};
 pub use error::{BrainError, Result};
 pub use exporter::{BrainExporter, BrainImporter, PortableBrainBundle, BUNDLE_VERSION};

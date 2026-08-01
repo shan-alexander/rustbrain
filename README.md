@@ -101,6 +101,7 @@ See **[docs/CLI.md](docs/CLI.md)** for every flag, ignore dialect, bootstrap out
 | `note new` | Typed note — prefer `--type` + `--title` only (scaffold), then edit file |
 | `links` | List pending unresolved links |
 | `query <q>` | Ranked FTS (`--no-symbols`, `--type goal,adr`, `--scores`) |
+| `graph [target]` | Neighborhood tree / stats (`--hops`, `--json`, `--no-auto`) |
 | `context …` | Agent context (positional or `-p`; note-first; `--with-symbols`) |
 | `watch` | Debounced re-index |
 | `export` / `import` | Portable `.brainbundle` |

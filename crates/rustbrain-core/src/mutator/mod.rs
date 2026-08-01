@@ -3,6 +3,11 @@
 //! Enabled with the `jshift` Cargo feature. Not used by the core indexing path;
 //! provided for tooling that streams JSONL manifests or agent side-channels
 //! without full `serde_json` re-serialization.
+//!
+//! **Why optional / not default:** criterion benches on rustbrain-shaped workloads
+//! show `serde_json` wins for full typed encode/decode and pretty CLI JSON; jshift
+//! wins for sparse path get and in-place patch on larger buffers. See
+//! `docs/JSON_STACK.md` in the repository root.
 
 #[cfg(feature = "jshift")]
 mod imp {

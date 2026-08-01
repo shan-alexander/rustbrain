@@ -1,15 +1,15 @@
-# rustbrain CLI reference (v0.3.11)
+# rustbrain CLI reference (v0.3.12)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.11 --locked
+# or pin: cargo install rustbrain --version 0.3.12 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
 All commands accept a workspace path (default `.`). Prefer `-w /path` when the CWD is not the project root.
-`query` / `context` / `doctor` **walk parent directories** for `.brain/db.sqlite` (git-style).
+`query` / `context` / `doctor` / `graph` **walk parent directories** for `.brain/db.sqlite` (git-style).
 
 ---
 
@@ -19,7 +19,7 @@ All commands accept a workspace path (default `.`). Prefer `-w /path` when the C
 setup ──► (or: init ──► bootstrap ──► sync ──► doctor)
                               │
                               ├── note new ──► sync (default)
-                              ├── query / context / links
+                              ├── query / context / graph / links
                               └── watch (optional)
 ```
 
@@ -29,6 +29,7 @@ setup ──► (or: init ──► bootstrap ──► sync ──► doctor)
 | Empty store | `init` | Creates `.brain/db.sqlite` only |
 | Mature repo seed | `bootstrap` | Docs tree + ignore + README/AST + **AGENTS.md** |
 | Compile notes → graph | `sync` | FTS + edges + `graph.mmap` |
+| Inspect structure | `graph` | Neighborhood tree / stats (ASCII or JSON) |
 | Health | `doctor` | Pending links, ratios, exit codes |
 
 ---
@@ -207,6 +208,57 @@ rustbrain links --auto --json
 Creates low-weight edges (`auto_filename` ~0.4, `auto_tag` ~0.25). Same basename under
 different folders (e.g. `goals/rust-fluency.md` and `concepts/rust-fluency.md`) is linked.
 Re-run rebuilds auto edges. Explicit Markdown links remain preferred for hops.
+
+---
+
+## `graph`
+
+Inspect the **structure** of the knowledge graph (who links to whom). Complements
+`context` (which packs **content** under a token budget).
+
+```bash
+# Workspace stats: counts by type/relation + high-degree hubs
+rustbrain graph
+rustbrain graph --json
+
+# Neighborhood of a note (path, id, or exact title)
+rustbrain graph docs/concepts/raft.md
+rustbrain graph docs/adr/0001-use-egui --hops 2
+rustbrain graph "Raft" --no-auto
+rustbrain graph symbol:StorageEngine --direction out
+
+# Filters
+rustbrain graph docs/raft.md --no-symbols --type adr,concept,goal
+rustbrain graph docs/raft.md --direction in   # only reverse edges
+rustbrain graph docs/raft.md --json           # agents/tools
+rustbrain graph docs/raft.md --stats          # stats header + neighborhood
+```
+
+| Flag | Meaning |
+|------|---------|
+| `TARGET` | Node id, path, unique title, or `symbol:Name` (omit for stats) |
+| `--hops` | BFS depth (default `1`) |
+| `--direction` | `both` (default), `out`, or `in` |
+| `--no-auto` | Hide soft `auto_*` edges |
+| `--no-symbols` | Hide symbol neighbors |
+| `--type` | Neighbor type filter (comma-separated) |
+| `--limit` | Max edges shown (default 200) |
+| `--json` | Machine-readable report |
+| `--stats` | With TARGET: print stats above the tree |
+| `-w` | Workspace root |
+
+**ASCII sample:**
+
+```text
+graph: docs/concepts/raft  (concept)  "Raft"
+  path: docs/concepts/raft.md
+  hops=1  edges_shown=3  nodes_in_subgraph=4  db=120/95 n/e
+├──[→ relates_to w=1.00] docs/concepts/logcompaction  (concept)  "Log Compaction"
+├──[→ anchors w=1.00] symbol/demo/lib/storageengine  (symbol)  "StorageEngine"
+└──[← relates_to w=0.90] docs/adr/0001-use-raft  (adr)  "Use Raft"
+```
+
+Edges come from SQLite (relation types preserved). Run `sync` after note/code edits.
 
 ---
 

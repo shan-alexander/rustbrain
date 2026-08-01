@@ -111,6 +111,30 @@ fn init_sync_query_context_export() {
         .success();
     assert!(bundle.exists());
 
+    // Graph neighborhood around a note + workspace stats.
+    cargo_bin_cmd!("rustbrain")
+        .current_dir(root)
+        .args(["graph", "docs/raft.md", "-w", "."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("graph:"))
+        .stdout(predicate::str::contains("relates_to").or(predicate::str::contains("anchors")));
+
+    cargo_bin_cmd!("rustbrain")
+        .current_dir(root)
+        .args(["graph", "--json", "-w", "."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"nodes\""))
+        .stdout(predicate::str::contains("\"hubs\""));
+
+    cargo_bin_cmd!("rustbrain")
+        .current_dir(root)
+        .args(["graph", "Raft", "--hops", "1", "--no-auto", "-w", "."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("docs/"));
+
     // Watch command exists (help only — don't block).
     cargo_bin_cmd!("rustbrain")
         .args(["watch", "--help"])

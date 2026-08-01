@@ -25,7 +25,8 @@ obsidian = ["dep:serde_yaml_ng"]
 mmap = ["dep:memmap2"]
 # Debounced filesystem watcher.
 watch = ["dep:notify"]
-# Optional in-place JSON helpers.
+# Optional sparse path get / in-place JSON mutate (see docs/JSON_STACK.md).
+# Not a serde_json replacement: full document encode/decode stays on serde.
 jshift = ["dep:jshift"]
 
 [dependencies]

@@ -977,7 +977,8 @@ rustbrain doctor
 ## Everyday loop
 
 ```bash
-rustbrain context "why <decision> / how does <feature> work"   # orient
+rustbrain context "why <decision> / how does <feature> work"   # orient (content pack)
+rustbrain graph docs/adr/….md                                  # inspect who links where
 rustbrain query "topic" --scores                               # search notes
 # preferred note creation — see below (scaffold, then edit)
 rustbrain note new --type adr --title "…"
@@ -1048,6 +1049,21 @@ Builds FTS seeds + optional graph hops under a token budget. Default format: **m
 | `context` from `src/` | Finds parent `.brain` automatically |
 
 Packing prefers **seeds and ADRs/goals** over symbol noise; skips ADR `TEMPLATE`; dedupes README vs from-readme; strips YAML frontmatter from excerpts.
+
+### `graph` (structure inspect)
+
+Shows **who links to whom** (ASCII tree or JSON). Use when you need edge types/weights, not a full content pack.
+
+| Command | Expect |
+|---------|--------|
+| `graph` | Workspace stats: by type, by relation, hubs |
+| `graph docs/concepts/raft.md` | 1-hop neighborhood of that note |
+| `graph "Raft" --hops 2` | Deeper tree (title resolve when unique) |
+| `graph symbol:StorageEngine` | Symbol-centered neighborhood |
+| `graph docs/x.md --no-auto --no-symbols` | Explicit note links only |
+| `graph docs/x.md --direction out` | Outgoing edges only |
+| `graph docs/x.md --json` | Machine-readable for tools |
+
 
 ### `note new` (preferred agent workflow)
 
