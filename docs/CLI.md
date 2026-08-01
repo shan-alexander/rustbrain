@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.17)
+# rustbrain CLI reference (v0.3.18)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.17 --locked
+# or pin: cargo install rustbrain --version 0.3.18 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -48,7 +48,19 @@ rustbrain setup --yes --agents-template ./AGENTS.template.md
 Always non-interactive. Preferred entry point for agents and CI.
 
 **Writes by default:** docs scaffold, `.rustbrainignore`, README harvest, module map,
-root **`AGENTS.md`**, then full sync + doctor.
+**Cargo.toml → docs.rs notes** under `docs/references/`, root **`AGENTS.md`** + `docs/AGENTS.md`,
+then full sync + doctor.
+
+```bash
+rustbrain setup --yes --no-crate-docs   # skip docs.rs harvest
+```
+
+After bootstrap, agents can:
+
+```bash
+rustbrain query "serde" --scores
+# → docs/references/crates/serde.md with https://docs.rs/serde/…
+```
 
 ---
 

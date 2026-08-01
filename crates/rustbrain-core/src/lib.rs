@@ -46,6 +46,7 @@ pub mod autolink;
 pub mod bootstrap;
 pub mod brain;
 pub mod context;
+pub mod crate_docs;
 pub mod doctor;
 pub mod error;
 pub mod exporter;
@@ -82,6 +83,9 @@ pub use bootstrap::{
 };
 pub use brain::{find_brain_dir, Brain};
 pub use context::ContextOptions;
+pub use crate_docs::{
+    collect_crate_deps, crates_io_url, docs_rs_url, write_crate_docs_notes, CrateDep,
+};
 pub use fts::{is_generic_topic, prepare_search_query, tokenize_query, PreparedQuery};
 pub use hubs::{
     changelog_latest_heading, changelog_version_aliases, detect_project_hub, is_hub_node_id,

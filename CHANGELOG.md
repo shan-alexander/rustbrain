@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.18] - 2026-07-31
+
+### Added — Cargo.toml → docs.rs reference notes on setup/bootstrap
+
+- **`rustbrain setup` / `bootstrap`** harvests crates.io dependencies from every
+  `Cargo.toml` (deps / dev / build / workspace.dependencies), resolves versions
+  from `Cargo.lock` when present, and writes:
+  - `docs/references/crate-docs.generated.md` (index)
+  - `docs/references/crates/{crate}.md` per package with **docs.rs** + crates.io URLs
+- Skips `path =` local crates; supports `package =` renames; cap 300 crates.
+- Flag: `--no-crate-docs` to skip. Default on when `Cargo.toml` exists.
+- Library: `crate_docs` (`collect_crate_deps`, `docs_rs_url`, `write_crate_docs_notes`).
+- No network fetch of docs HTML — URL convention only; re-run with `--force` after dep upgrades.
+
 ## [0.3.17] - 2026-07-31
 
 ### Added — plan status densification (optional, algorithmically dense)

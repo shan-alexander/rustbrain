@@ -84,6 +84,9 @@ enum Commands {
         /// Do not write root AGENTS.md during bootstrap
         #[arg(long, default_value_t = false)]
         no_agents_md: bool,
+        /// Skip harvesting Cargo.toml deps → docs.rs notes
+        #[arg(long, default_value_t = false)]
+        no_crate_docs: bool,
         /// Custom AGENTS.md template file (overrides AGENTS.template.md / built-in)
         #[arg(long, value_name = "PATH")]
         agents_template: Option<PathBuf>,
@@ -117,6 +120,9 @@ enum Commands {
         /// Do not write root AGENTS.md
         #[arg(long, default_value_t = false)]
         no_agents_md: bool,
+        /// Skip harvesting Cargo.toml deps → docs.rs notes
+        #[arg(long, default_value_t = false)]
+        no_crate_docs: bool,
         /// Custom AGENTS.md template file (overrides AGENTS.template.md / built-in)
         #[arg(long, value_name = "PATH")]
         agents_template: Option<PathBuf>,
@@ -395,6 +401,7 @@ fn run() -> Result<ExitCode> {
             no_doctor,
             no_bootstrap,
             no_agents_md,
+            no_crate_docs,
             agents_template,
         } => {
             let _ = yes; // always non-interactive for setup
@@ -418,6 +425,7 @@ fn run() -> Result<ExitCode> {
                     ignore_extras: true,
                     harvest_readme: true,
                     module_map: true,
+                    crate_docs: !no_crate_docs,
                     scaffold_docs: true,
                     write_agents_md: Some(!no_agents_md),
                     agents_template,
@@ -461,6 +469,7 @@ fn run() -> Result<ExitCode> {
             import_gitignore,
             no_import_gitignore,
             no_agents_md,
+            no_crate_docs,
             agents_template,
         } => {
             let write = if dry_run { false } else { write || yes };
@@ -494,6 +503,7 @@ fn run() -> Result<ExitCode> {
                 ignore_extras: true,
                 harvest_readme: true,
                 module_map: true,
+                crate_docs: !no_crate_docs,
                 scaffold_docs: true,
                 write_agents_md: write_agents,
                 agents_template,
