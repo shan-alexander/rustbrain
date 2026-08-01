@@ -27,8 +27,29 @@ impl WikiLink {
     }
 }
 
+/// A WikiLink with byte offsets into the source markdown (`start` inclusive, `end` exclusive).
+///
+/// Offsets cover the full `[[...]]` token and are guaranteed UTF-8 char boundaries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikiLinkSpan {
+    /// Parsed link.
+    pub link: WikiLink,
+    /// Byte offset of the opening `[[`.
+    pub start: usize,
+    /// Byte offset after the closing `]]`.
+    pub end: usize,
+}
+
 /// Extract all WikiLinks from markdown, skipping fenced and inline code.
 pub fn extract_wikilinks(markdown: &str) -> Vec<WikiLink> {
+    extract_wikilink_spans(markdown)
+        .into_iter()
+        .map(|s| s.link)
+        .collect()
+}
+
+/// Extract WikiLinks with absolute byte spans (for safe in-place rewrites).
+pub fn extract_wikilink_spans(markdown: &str) -> Vec<WikiLinkSpan> {
     let mut links = Vec::new();
     let bytes = markdown.as_bytes();
     let len = bytes.len();
@@ -61,9 +82,11 @@ pub fn extract_wikilinks(markdown: &str) -> Vec<WikiLink> {
         }
 
         if i + 1 < len && bytes[i] == b'[' && bytes[i + 1] == b'[' {
+            let open = i;
             let start = i + 2;
             if let Some(rel_end) = markdown[start..].find("]]") {
                 let inner = &markdown[start..start + rel_end];
+                let end = start + rel_end + 2;
                 if !inner.trim().is_empty() && !inner.contains('\n') {
                     let mut alias_parts = inner.splitn(2, '|');
                     let target_and_sec = alias_parts.next().unwrap_or("").trim();
@@ -73,15 +96,22 @@ pub fn extract_wikilinks(markdown: &str) -> Vec<WikiLink> {
                     let target_node = sec_parts.next().unwrap_or("").trim().to_string();
                     let section = sec_parts.next().map(|s| s.trim().to_string());
 
-                    if !target_node.is_empty() {
-                        links.push(WikiLink {
-                            target_node,
-                            section,
-                            display_alias,
+                    if !target_node.is_empty()
+                        && markdown.is_char_boundary(open)
+                        && markdown.is_char_boundary(end)
+                    {
+                        links.push(WikiLinkSpan {
+                            link: WikiLink {
+                                target_node,
+                                section,
+                                display_alias,
+                            },
+                            start: open,
+                            end,
                         });
                     }
                 }
-                i = start + rel_end + 2;
+                i = end;
                 continue;
             }
         }
@@ -121,5 +151,14 @@ mod tests {
         let links = extract_wikilinks(text);
         let names: Vec<_> = links.iter().map(|l| l.target_node.as_str()).collect();
         assert_eq!(names, vec!["Real", "Yes"]);
+    }
+
+    #[test]
+    fn spans_roundtrip_slice() {
+        let text = "A [[foo|Foo]] B";
+        let spans = extract_wikilink_spans(text);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(&text[spans[0].start..spans[0].end], "[[foo|Foo]]");
+        assert_eq!(spans[0].link.to_markdown(), "[[foo|Foo]]");
     }
 }

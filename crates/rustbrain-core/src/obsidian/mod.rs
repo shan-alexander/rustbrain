@@ -9,4 +9,4 @@ pub mod wikilink;
 
 pub use canvas::{CanvasEdge, CanvasNode, ObsidianCanvas};
 pub use frontmatter::{parse_frontmatter, Frontmatter};
-pub use wikilink::{extract_wikilinks, WikiLink};
+pub use wikilink::{extract_wikilink_spans, extract_wikilinks, WikiLink, WikiLinkSpan};

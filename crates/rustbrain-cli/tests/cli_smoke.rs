@@ -111,6 +111,14 @@ fn init_sync_query_context_export() {
         .success();
     assert!(bundle.exists());
 
+    // Apply: dry-run should succeed even with zero pending.
+    cargo_bin_cmd!("rustbrain")
+        .current_dir(root)
+        .args(["links", "--apply", "--dry-run", "-w", "."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("links apply"));
+
     // Graph neighborhood around a note + workspace stats.
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)

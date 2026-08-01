@@ -286,6 +286,17 @@ impl Brain {
         Ok(report)
     }
 
+    /// Plan/apply pending WikiLink normalizations and optional AC discovery.
+    ///
+    /// See [`crate::apply_links::apply_links`]. When `opts.write` is true and
+    /// `opts.sync_after`, call [`Self::sync`] after a successful write.
+    pub fn apply_links(
+        &self,
+        opts: &crate::apply_links::ApplyOptions,
+    ) -> Result<crate::apply_links::ApplyReport> {
+        crate::apply_links::apply_links(&self.workspace, &self.db, opts)
+    }
+
     /// k-hop neighborhood around a node (path, id, title, or `symbol:…`).
     ///
     /// Uses SQLite edges (relation types preserved). Prefer for inspection;

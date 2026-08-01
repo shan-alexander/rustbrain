@@ -187,7 +187,7 @@ pub fn run_doctor_with(workspace: &Path, opts: &DoctorOptions) -> Result<DoctorR
             severity: DoctorSeverity::Warn,
             code: "pending_links".into(),
             message: format!(
-                "{pending_links} unresolved WikiLink/symbol refs — see pending list; create stub notes or fix links"
+                "{pending_links} unresolved WikiLink/symbol refs — `rustbrain links` to list; `links --apply --dry-run` if targets now exist; else create notes or fix links"
             ),
         });
     }

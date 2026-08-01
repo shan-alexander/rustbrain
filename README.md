@@ -99,7 +99,7 @@ See **[docs/CLI.md](docs/CLI.md)** for every flag, ignore dialect, bootstrap out
 | `sync` | Index Markdown / Canvas / Rust; bake `graph.mmap` |
 | `doctor` | Health: pending links, type ratios (`--strict`, `--json`) |
 | `note new` | Typed note — prefer `--type` + `--title` only (scaffold), then edit file |
-| `links` | List pending unresolved links |
+| `links` | Pending list; `--auto` soft edges; `--apply` pending normalize + optional `--discover` |
 | `query <q>` | Ranked FTS (`--no-symbols`, `--type goal,adr`, `--scores`) |
 | `graph [target]` | Neighborhood tree / stats (`--hops`, `--json`, `--no-auto`) |
 | `context …` | Agent context (positional or `-p`; note-first; `--with-symbols`) |

@@ -41,6 +41,7 @@
 
 #[cfg(feature = "ast")]
 pub mod ast;
+pub mod apply_links;
 pub mod autolink;
 pub mod bootstrap;
 pub mod brain;
@@ -65,6 +66,9 @@ pub mod symbols;
 pub mod types;
 pub mod watch;
 
+pub use apply_links::{
+    apply_links, ApplyEdit, ApplyKind, ApplyOptions, ApplyReport, ApplyTier,
+};
 pub use autolink::{
     is_auto_relation, is_explicit_relation, list_orphan_notes, normalize_target_arg, path_stem,
     run_auto_link, AutoLinkReport, AutoLinkSuggestion, OrphanNote, REL_AUTO_FILENAME,
@@ -102,8 +106,8 @@ pub use ast::{compute_symbol_hash, AstError, CodeAstParser, SymbolAnchor};
 
 #[cfg(feature = "obsidian")]
 pub use obsidian::{
-    extract_wikilinks, parse_frontmatter, CanvasEdge, CanvasNode, Frontmatter, ObsidianCanvas,
-    WikiLink,
+    extract_wikilink_spans, extract_wikilinks, parse_frontmatter, CanvasEdge, CanvasNode,
+    Frontmatter, ObsidianCanvas, WikiLink, WikiLinkSpan,
 };
 
 #[cfg(feature = "jshift")]

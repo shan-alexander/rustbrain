@@ -13,8 +13,8 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use rustbrain_core::{
     bootstrap_workspace, create_note, normalize_target_arg, run_doctor, run_doctor_with,
-    BootstrapMode, BootstrapOptions, Brain, DoctorOptions, GlobalRegistry, GraphDirection,
-    GraphOptions, NoteNewOptions, NodeType, QueryOptions,
+    ApplyOptions, BootstrapMode, BootstrapOptions, Brain, DoctorOptions, GlobalRegistry,
+    GraphDirection, GraphOptions, NoteNewOptions, NodeType, QueryOptions,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -141,19 +141,40 @@ enum Commands {
         #[command(subcommand)]
         cmd: NoteCmd,
     },
-    /// Pending unresolved links, or soft auto-links (`--auto`)
+    /// Pending links, soft auto-links, or apply rewrites (`--apply`)
     #[command(visible_alias = "link")]
     Links {
         /// Workspace root
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
-        /// List pending WikiLink / symbol targets (default when not using --auto)
+        /// List pending WikiLink / symbol targets (default when not using --auto/--apply)
         #[arg(long, default_value_t = false)]
         pending: bool,
         /// Create soft auto-links (filename stem + shared tags)
         #[arg(long, default_value_t = false)]
         auto: bool,
-        /// Optional path or node id to auto-link (e.g. docs/goals/foo.md)
+        /// Plan/apply pending WikiLink normalizations (Phase 0); add `--discover` for AC mentions
+        #[arg(long, default_value_t = false)]
+        apply: bool,
+        /// With `--apply`: write files (without this flag, apply is always dry-run)
+        #[arg(long, default_value_t = false)]
+        write: bool,
+        /// With `--apply`: force dry-run even if `--write` is set
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+        /// With `--apply`: Phase 1 Aho–Corasick discover of unmarked entity mentions
+        #[arg(long, default_value_t = false)]
+        discover: bool,
+        /// With `--apply`: allow rewriting generated notes
+        #[arg(long, default_value_t = false)]
+        force: bool,
+        /// With `--apply`: max auto-tier edits (default 200)
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
+        /// With `--apply --write`: skip automatic sync after writes
+        #[arg(long, default_value_t = false)]
+        no_sync: bool,
+        /// Optional path or node id (auto-link focus, or apply source filter)
         #[arg(value_name = "TARGET")]
         target: Option<PathBuf>,
         /// JSON output
@@ -579,9 +600,58 @@ fn run() -> Result<ExitCode> {
             workspace,
             pending,
             auto,
+            apply,
+            write,
+            dry_run,
+            discover,
+            force,
+            limit,
+            no_sync,
             target,
             json,
         } => {
+            if auto && apply {
+                bail!("use either `--auto` (soft DB edges) or `--apply` (Markdown rewrites), not both");
+            }
+
+            if apply {
+                let mut brain = Brain::open(&workspace).with_context(|| {
+                    format!(
+                        "no brain found at {} or parents. run `rustbrain setup --yes` or `rustbrain sync`",
+                        workspace.display()
+                    )
+                })?;
+                if write && dry_run {
+                    bail!("`--write` and `--dry-run` conflict; omit one");
+                }
+                let opts = ApplyOptions {
+                    write,
+                    dry_run: !write || dry_run,
+                    discover,
+                    force_generated: force,
+                    limit,
+                    target: target.map(|p| p.to_string_lossy().to_string()),
+                    sync_after: !no_sync,
+                    report_suggest: true,
+                };
+                let report = brain.apply_links(&opts)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print!("{}", report.to_text());
+                }
+                if !report.dry_run && report.written > 0 && report.recommend_sync {
+                    let stats = brain.sync()?;
+                    if !json {
+                        println!(
+                            "synced after apply: upserted={} pending={} file_errors={}",
+                            stats.nodes_upserted, stats.edges_pending, stats.file_errors
+                        );
+                    }
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
+
             if auto {
                 let mut brain = Brain::open(&workspace).with_context(|| {
                     format!(
@@ -612,6 +682,7 @@ fn run() -> Result<ExitCode> {
                     }
                     println!("tip: soft links are `auto_*` edges (low weight). Explicit WikiLinks stay preferred.");
                     println!("     re-check orphans: `rustbrain doctor --orphans`");
+                    println!("     normalize pending WikiLinks: `rustbrain links --apply --dry-run`");
                 }
                 return Ok(ExitCode::SUCCESS);
             }
@@ -630,6 +701,7 @@ fn run() -> Result<ExitCode> {
             } else if list.is_empty() {
                 println!("no pending links");
                 println!("tip: soft-link orphans with `rustbrain links --auto` (or `rustbrain link --auto`)");
+                println!("     discover unmarked mentions: `rustbrain links --apply --discover --dry-run`");
             } else {
                 println!("{} pending link(s):", list.len());
                 for p in &list {
@@ -638,6 +710,8 @@ fn run() -> Result<ExitCode> {
                         p.source_id, p.relation_type, p.raw_target
                     );
                 }
+                println!("tip: `rustbrain links --apply --dry-run` plans unique pending rewrites");
+                println!("     `rustbrain links --apply --write` applies them (then syncs)");
             }
             Ok(ExitCode::SUCCESS)
         }

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.13] - 2026-07-31
+
+### Added — `links --apply` (Phase 0 pending + Phase 1 AC discover)
+
+- **`rustbrain links --apply`** plans Markdown rewrites for the knowledge graph:
+  - **Phase 0:** normalize pending WikiLinks that now uniquely resolve (`[[LogCompaction]]` →
+    `[[docs/concepts/logcompaction|LogCompaction]]`). Skips ambiguous/unresolved, missing files,
+    and generated notes (unless `--force`).
+  - **Phase 1:** `--discover` builds a closed-world **LinkLexicon** (titles/aliases/stems/symbols)
+    and scans note bodies with **Aho–Corasick** (leftmost-longest, case-insensitive) for unmarked
+    mentions. Auto-tier wraps strong unique hits; suggest-tier is report-only.
+- Safety: dry-run by default (needs **`--write`** to mutate); atomic temp+rename; span edits from
+  end; overlap rejection; `--limit`; optional source `TARGET`; auto-`sync` after write.
+- Library: `apply_links`, `ApplyOptions`, `ApplyReport`, `Brain::apply_links`
+- WikiLink byte spans: `extract_wikilink_spans` / `WikiLinkSpan`
+- Dependency: `aho-corasick`
+
 ## [0.3.12] - 2026-07-31
 
 ### Added — `rustbrain graph` (P1 neighborhood CLI)

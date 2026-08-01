@@ -43,6 +43,7 @@ thiserror.workspace = true
 chrono.workspace = true
 blake3.workspace = true
 dirs.workspace = true
+aho-corasick.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

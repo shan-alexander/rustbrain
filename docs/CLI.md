@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.12)
+# rustbrain CLI reference (v0.3.13)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.12 --locked
+# or pin: cargo install rustbrain --version 0.3.13 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -208,6 +208,46 @@ rustbrain links --auto --json
 Creates low-weight edges (`auto_filename` ~0.4, `auto_tag` ~0.25). Same basename under
 different folders (e.g. `goals/rust-fluency.md` and `concepts/rust-fluency.md`) is linked.
 Re-run rebuilds auto edges. Explicit Markdown links remain preferred for hops.
+
+### `links --apply` (rewrite Markdown carefully)
+
+Closes **pending** WikiLinks when the target now uniquely exists, and optionally **discovers**
+unmarked entity mentions (Aho–Corasick over a closed-world lexicon). Never invents notes.
+
+```bash
+# Phase 0 — plan only (default)
+rustbrain links --apply --dry-run
+rustbrain links --apply                 # same: no --write ⇒ dry-run
+
+# Phase 0 — write unique pending normalizations, then sync
+rustbrain links --apply --write
+
+# Phase 1 — also plan unmarked title/alias/symbol mentions
+rustbrain links --apply --discover --dry-run
+rustbrain links --apply --discover --write
+
+# Focus one source note; JSON for agents
+rustbrain links --apply --dry-run docs/concepts/raft.md
+rustbrain links --apply --write --json
+rustbrain links --apply --write --force   # allow generated: true files
+rustbrain links --apply --write --limit 50
+rustbrain links --apply --write --no-sync
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--apply` | Enter apply mode (mutually exclusive with `--auto`) |
+| `--write` | Required to mutate files |
+| `--dry-run` | Plan only (default without `--write`) |
+| `--discover` | AC scan for unmarked mentions (suggest + strong auto) |
+| `--force` | Rewrite generated bootstrap files |
+| `--limit N` | Cap auto-tier edits (default 200) |
+| `--no-sync` | Skip automatic sync after write |
+| `TARGET` | Optional source path/id filter |
+| `--json` | Full `ApplyReport` |
+
+**Tiers:** `AUTO` may write; `SUGGEST` is report-only; `SKIP` never writes (ambiguous, unresolved,
+generated, missing file, limit). Edits are atomic (temp + rename) with UTF-8-safe spans.
 
 ---
 
