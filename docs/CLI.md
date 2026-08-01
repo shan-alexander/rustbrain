@@ -4,7 +4,7 @@ Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.21 --locked
+# or pin: cargo install rustbrain --version 0.3.22 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -25,9 +25,11 @@ Agents/humans must know the **id** before `import --as`, `query --scope`, or `ex
 |------|---------|
 | List ids **here** | `rustbrain scopes list` |
 | JSON | `rustbrain scopes list --json` → `manifest.scopes[].id` |
+| Suggest id for a path | `rustbrain scopes detect PATH` (before import/attach) |
 | List ids **elsewhere** | `rustbrain scopes list -w /path/to/other` |
 | After Cargo discover | `scopes enable --cargo` then `scopes list` |
 | Brand-new folder / foreign mono | **Choose** id (convention = directory name), then `attach ID --root DIR` or `import --from DIR --as ID` |
+| Auto-scope from CWD | `query`/`context`/`graph` when CWD is under a SubBrain (override with `--scope` / `--no-scope-auto`) |
 
 ```bash
 rustbrain scopes list

@@ -57,6 +57,12 @@ pub struct GraphOptions {
     pub max_edges: usize,
     /// If set, only include neighbors whose type is in this list.
     pub type_filter: Option<Vec<NodeType>>,
+    /// Optional SubBrain filter: keep neighbors in this scope (or hubs / MainBrain mix).
+    pub scope: Option<String>,
+    /// How much MainBrain content to allow as neighbors when `scope` is set.
+    pub scope_main: crate::query::ScopeMainInclude,
+    /// MainBrain id for scope filtering (default `main`).
+    pub main_scope: String,
 }
 
 impl Default for GraphOptions {
@@ -68,7 +74,27 @@ impl Default for GraphOptions {
             direction: GraphDirection::Both,
             max_edges: 200,
             type_filter: None,
+            scope: None,
+            scope_main: crate::query::ScopeMainInclude::HubsOnly,
+            main_scope: crate::scopes::MAIN_SCOPE.to_string(),
         }
+    }
+}
+
+impl GraphOptions {
+    fn allows_neighbor(&self, node: &Node) -> bool {
+        if let Some(ref want) = self.scope {
+            let q = crate::query::QueryOptions {
+                scope: Some(want.clone()),
+                main_scope: self.main_scope.clone(),
+                scope_main: self.scope_main,
+                ..crate::query::QueryOptions::default()
+            };
+            if !q.allows_scope(&node.scope, &node.id) {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -389,6 +415,9 @@ pub fn neighborhood(db: &Database, target: &str, opts: &GraphOptions) -> Result<
                 if !filter.contains(&neighbor.node_type) {
                     continue;
                 }
+            }
+            if !opts.allows_neighbor(neighbor) {
+                continue;
             }
 
             visited.insert(neighbor_id.to_string());

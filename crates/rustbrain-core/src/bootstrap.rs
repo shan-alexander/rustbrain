@@ -1345,6 +1345,7 @@ Packing prefers **seeds and ADRs/goals** over symbol noise; skips ADR `TEMPLATE`
 |---------|--------|
 | `scopes list` | **Primary way to learn ids** — mode, main, SubBrain ids, roots, node counts |
 | `scopes list --json` | Same for tools (`manifest.scopes[].id`) |
+| `scopes detect PATH` | Suggest id + mount tips **before** import/attach |
 | `scopes list -w /other` | Inspect another workspace path |
 | `scopes enable --cargo` | multi + Cargo members as SubBrains; then `sync` |
 | `scopes enable --empty` | multi with no SubBrains yet |

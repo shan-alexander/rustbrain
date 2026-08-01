@@ -42,7 +42,7 @@ impl GlobalRegistry {
         Ok(dir.join("registry.json"))
     }
 
-    /// Load registry, pruning missing workspace paths.
+    /// Load registry, pruning missing workspace paths (and persisting if anything dropped).
     pub fn load() -> Result<Self> {
         let path = Self::config_path()?;
         if !path.exists() {
@@ -50,8 +50,23 @@ impl GlobalRegistry {
         }
         let content = fs::read_to_string(&path)?;
         let mut reg: Self = serde_json::from_str(&content).unwrap_or_default();
+        let before = reg.workspaces.len();
         reg.prune_missing();
+        if reg.workspaces.len() != before {
+            let _ = reg.save();
+        }
         Ok(reg)
+    }
+
+    /// Prune missing paths and save. Returns number of entries removed.
+    pub fn gc(&mut self) -> Result<usize> {
+        let before = self.workspaces.len();
+        self.prune_missing();
+        let removed = before.saturating_sub(self.workspaces.len());
+        if removed > 0 {
+            self.save()?;
+        }
+        Ok(removed)
     }
 
     /// Persist registry atomically.

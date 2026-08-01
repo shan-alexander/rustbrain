@@ -13,11 +13,12 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use rustbrain_core::{
     absorb_all_to_main, absorb_scope, add_scope, attach_subbrain, bootstrap_workspace,
-    count_nodes_by_scope, create_note, disable_multi, enable_multi, format_scopes_text,
-    import_brain, load_manifest, normalize_target_arg, reconcile_scopes, remove_scope_def,
-    run_doctor, run_doctor_with, ApplyOptions, ApplyStyle, BootstrapMode, BootstrapOptions, Brain,
-    DoctorOptions, GlobalRegistry, GraphDirection, GraphOptions, ImportBrainOptions,
-    NoteNewOptions, NodeType, QueryOptions, ScopeMainInclude, ScopeSource, MAIN_SCOPE,
+    count_nodes_by_scope, create_note, detect_path, disable_multi, enable_multi,
+    format_scopes_text, import_brain, load_manifest, normalize_target_arg, reconcile_scopes,
+    remove_scope_def, run_doctor, run_doctor_with, scope_for_cwd, ApplyOptions, ApplyStyle,
+    BootstrapMode, BootstrapOptions, Brain, DoctorOptions, GlobalRegistry, GraphDirection,
+    GraphOptions, ImportBrainOptions, NoteNewOptions, NodeType, QueryOptions, ScopeMainInclude,
+    ScopeSource, MAIN_SCOPE,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -92,6 +93,9 @@ enum Commands {
         /// Skip harvesting Cargo.toml deps → docs.rs notes
         #[arg(long, default_value_t = false)]
         no_crate_docs: bool,
+        /// After setup, enable multi-brain from Cargo workspace members
+        #[arg(long, default_value_t = false)]
+        multi_cargo: bool,
         /// Custom AGENTS.md template file (overrides AGENTS.template.md / built-in)
         #[arg(long, value_name = "PATH")]
         agents_template: Option<PathBuf>,
@@ -238,6 +242,9 @@ enum Commands {
         /// With `--scope`: include all MainBrain nodes (default is hubs only)
         #[arg(long, default_value_t = false)]
         scope_with_main: bool,
+        /// Do not auto-detect SubBrain from current working directory
+        #[arg(long, default_value_t = false)]
+        no_scope_auto: bool,
         /// Workspace root containing `.brain/`
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
@@ -271,6 +278,15 @@ enum Commands {
         /// Force stats summary even when TARGET is set
         #[arg(long, default_value_t = false)]
         stats: bool,
+        /// SubBrain filter for neighbors (hubs-only Main mix by default)
+        #[arg(long, value_name = "ID")]
+        scope: Option<String>,
+        #[arg(long, default_value_t = false)]
+        scope_strict: bool,
+        #[arg(long, default_value_t = false)]
+        scope_with_main: bool,
+        #[arg(long, default_value_t = false)]
+        no_scope_auto: bool,
         /// Workspace root (walks parents for `.brain`)
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
@@ -316,6 +332,9 @@ enum Commands {
         /// With `--scope`: include all MainBrain nodes (default is hubs only)
         #[arg(long, default_value_t = false)]
         scope_with_main: bool,
+        /// Do not auto-detect SubBrain from CWD
+        #[arg(long, default_value_t = false)]
+        no_scope_auto: bool,
         /// Workspace root (walks parents for `.brain` like git)
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
@@ -518,6 +537,63 @@ enum ScopesCmd {
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
     },
+    /// Suggest SubBrain id / mount options for a path (run before import)
+    Detect {
+        /// Directory to inspect (foreign mono-repo or subfolder)
+        path: PathBuf,
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+}
+
+/// Apply explicit `--scope` or CWD auto-detect into query/context options.
+fn apply_scope_cli(
+    opts_scope: &mut Option<String>,
+    opts_main_scope: &mut String,
+    opts_scope_main: &mut ScopeMainInclude,
+    brain_ws: &std::path::Path,
+    cli_ws: &std::path::Path,
+    explicit: Option<String>,
+    no_auto: bool,
+    strict: bool,
+    with_main: bool,
+) {
+    let resolved = if let Some(s) = explicit {
+        let m = load_manifest(brain_ws).unwrap_or_else(|_| {
+            rustbrain_core::WorkspaceManifest::single(brain_ws)
+        });
+        *opts_main_scope = m.main_id.clone();
+        Some(
+            m.find_scope(&s)
+                .map(|sc| sc.id.clone())
+                .unwrap_or(s),
+        )
+    } else if !no_auto {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| cli_ws.to_path_buf());
+        if let Some(s) = scope_for_cwd(brain_ws, &cwd) {
+            let m = load_manifest(brain_ws).unwrap_or_else(|_| {
+                rustbrain_core::WorkspaceManifest::single(brain_ws)
+            });
+            *opts_main_scope = m.main_id;
+            Some(s)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some(s) = resolved {
+        *opts_scope = Some(s);
+        *opts_scope_main = if strict {
+            ScopeMainInclude::Strict
+        } else if with_main {
+            ScopeMainInclude::AllMain
+        } else {
+            ScopeMainInclude::HubsOnly
+        };
+    }
 }
 
 fn main() -> ExitCode {
@@ -556,6 +632,7 @@ fn run() -> Result<ExitCode> {
             no_bootstrap,
             no_agents_md,
             no_crate_docs,
+            multi_cargo,
             agents_template,
         } => {
             let _ = yes; // always non-interactive for setup
@@ -592,6 +669,13 @@ fn run() -> Result<ExitCode> {
                 }
                 println!("setup: bootstrap complete");
             }
+            if multi_cargo {
+                let m = enable_multi(&workspace, true)?;
+                println!(
+                    "setup: multi-brain enabled ({} SubBrain(s) from Cargo)",
+                    m.scopes.len()
+                );
+            }
             let mut brain = Brain::open_or_create(&workspace)?;
             println!("setup: syncing {} ...", brain.workspace().display());
             let stats = brain.sync()?;
@@ -599,6 +683,14 @@ fn run() -> Result<ExitCode> {
                 "setup: sync complete nodes_upserted={} symbols={} pending={} file_errors={}",
                 stats.nodes_upserted, stats.symbol_anchors, stats.edges_pending, stats.file_errors
             );
+            if !stats.by_scope.is_empty() {
+                let parts: Vec<String> = stats
+                    .by_scope
+                    .iter()
+                    .map(|(s, n)| format!("{s}={n}"))
+                    .collect();
+                println!("setup: by_scope {}", parts.join(" "));
+            }
             if let Ok(mut reg) = GlobalRegistry::load() {
                 let _ = reg.register(brain.workspace());
             }
@@ -913,6 +1005,14 @@ fn run() -> Result<ExitCode> {
                 stats.mmap_written,
                 stats.file_errors
             );
+            if !stats.by_scope.is_empty() {
+                let parts: Vec<String> = stats
+                    .by_scope
+                    .iter()
+                    .map(|(s, n)| format!("{s}={n}"))
+                    .collect();
+                println!("by_scope: {}", parts.join(" "));
+            }
             if let Ok(mut reg) = GlobalRegistry::load() {
                 let _ = reg.register(brain.workspace());
             }
@@ -931,6 +1031,7 @@ fn run() -> Result<ExitCode> {
             scope,
             scope_strict,
             scope_with_main,
+            no_scope_auto,
             workspace,
         } => {
             // Note-first by default (0.3.1+). Symbols only with --with-symbols / --all-types.
@@ -950,25 +1051,6 @@ fn run() -> Result<ExitCode> {
                 opts.include_types = parse_types_list(&types)?;
                 opts.no_symbols = false;
             }
-            if let Some(s) = scope {
-                let m = load_manifest(&workspace).unwrap_or_else(|_| {
-                    rustbrain_core::WorkspaceManifest::single(&workspace)
-                });
-                let resolved = m
-                    .find_scope(&s)
-                    .map(|sc| sc.id.clone())
-                    .unwrap_or(s);
-                opts.scope = Some(resolved);
-                opts.main_scope = m.main_id;
-                opts.scope_main = if scope_strict {
-                    ScopeMainInclude::Strict
-                } else if scope_with_main {
-                    ScopeMainInclude::AllMain
-                } else {
-                    ScopeMainInclude::HubsOnly
-                };
-            }
-
             if all_workspaces {
                 println!("searching all registered workspaces for '{query}' ...");
                 let reg = GlobalRegistry::load()?;
@@ -1009,6 +1091,20 @@ fn run() -> Result<ExitCode> {
                     workspace.display()
                 )
             })?;
+            apply_scope_cli(
+                &mut opts.scope,
+                &mut opts.main_scope,
+                &mut opts.scope_main,
+                brain.workspace(),
+                &workspace,
+                scope,
+                no_scope_auto,
+                scope_strict,
+                scope_with_main,
+            );
+            if let Some(ref sc) = opts.scope {
+                eprintln!("scope: {sc}");
+            }
             println!("searching for '{query}' ...");
             let results = brain.query_ranked(&query, &opts)?;
             if results.is_empty() {
@@ -1059,6 +1155,10 @@ fn run() -> Result<ExitCode> {
             limit,
             json,
             stats,
+            scope,
+            scope_strict,
+            scope_with_main,
+            no_scope_auto,
             workspace,
         } => {
             let brain = Brain::open(&workspace).with_context(|| {
@@ -1076,7 +1176,7 @@ fn run() -> Result<ExitCode> {
                 } else {
                     print!("{}", report.to_ascii());
                     println!(
-                        "tip: `rustbrain graph <path|id|title|symbol:Name> [--hops N] [--json]`"
+                        "tip: `rustbrain graph <path|id|title|symbol:Name> [--hops N] [--json] [--scope ID]`"
                     );
                 }
                 return Ok(ExitCode::SUCCESS);
@@ -1103,9 +1203,24 @@ fn run() -> Result<ExitCode> {
                 direction: dir,
                 max_edges: limit.max(1),
                 type_filter: None,
+                ..GraphOptions::default()
             };
             if let Some(types) = r#type {
                 opts.type_filter = Some(parse_types_list(&types)?);
+            }
+            apply_scope_cli(
+                &mut opts.scope,
+                &mut opts.main_scope,
+                &mut opts.scope_main,
+                brain.workspace(),
+                &workspace,
+                scope,
+                no_scope_auto,
+                scope_strict,
+                scope_with_main,
+            );
+            if let Some(ref sc) = opts.scope {
+                eprintln!("scope: {sc}");
             }
             let nb = brain.graph_neighborhood(&target, &opts)?;
             if json {
@@ -1129,6 +1244,7 @@ fn run() -> Result<ExitCode> {
             scope,
             scope_strict,
             scope_with_main,
+            no_scope_auto,
             workspace,
         } => {
             let topic = for_prompt
@@ -1158,23 +1274,19 @@ fn run() -> Result<ExitCode> {
                 opts.include_types = parse_types_list(&types)?;
                 opts.no_symbols = false;
             }
-            if let Some(s) = scope {
-                let m = load_manifest(brain.workspace()).unwrap_or_else(|_| {
-                    rustbrain_core::WorkspaceManifest::single(brain.workspace())
-                });
-                let resolved = m
-                    .find_scope(&s)
-                    .map(|sc| sc.id.clone())
-                    .unwrap_or(s);
-                opts.scope = Some(resolved);
-                opts.main_scope = m.main_id;
-                opts.scope_main = if scope_strict {
-                    ScopeMainInclude::Strict
-                } else if scope_with_main {
-                    ScopeMainInclude::AllMain
-                } else {
-                    ScopeMainInclude::HubsOnly
-                };
+            apply_scope_cli(
+                &mut opts.scope,
+                &mut opts.main_scope,
+                &mut opts.scope_main,
+                brain.workspace(),
+                &workspace,
+                scope,
+                no_scope_auto,
+                scope_strict,
+                scope_with_main,
+            );
+            if let Some(ref sc) = opts.scope {
+                eprintln!("scope: {sc}");
             }
             let bundle = brain.context_for_prompt_with(&topic, &opts)?;
             match format.as_str() {
@@ -1417,6 +1529,32 @@ fn run() -> Result<ExitCode> {
                     "reconcile: mode={} updated={} unchanged={} orphan_scopes={:?}",
                     rep.mode, rep.updated, rep.unchanged, rep.orphan_scopes_cleared
                 );
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Detect {
+                path,
+                workspace,
+                json,
+            } => {
+                let rep = detect_path(&workspace, &path)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&rep)?);
+                } else {
+                    println!("path: {}", rep.path);
+                    println!("suggested_id: {}", rep.suggested_id);
+                    println!("under_workspace: {}", rep.under_workspace);
+                    if let Some(r) = &rep.relative_root {
+                        println!("relative_root: {r}");
+                    }
+                    println!("mountable: {}", rep.mountable);
+                    println!("has_nested_brain: {}", rep.has_nested_brain);
+                    if let Some(e) = &rep.existing_scope {
+                        println!("existing_scope: {e}");
+                    }
+                    for t in &rep.tips {
+                        println!("tip: {t}");
+                    }
+                }
                 Ok(ExitCode::SUCCESS)
             }
         },

@@ -92,7 +92,7 @@ Markdown on disk is the **source of truth**. `.brain/` is a **rebuildable cache*
 ```bash
 cargo install rustbrain --locked
 # pin a release:
-# cargo install rustbrain --version 0.3.21 --locked
+# cargo install rustbrain --version 0.3.22 --locked
 
 export PATH="$HOME/.cargo/bin:$PATH"
 rustbrain --version
@@ -844,7 +844,9 @@ Numbers below are **approximate medians** (release, x86_64 Linux, Criterion `--q
 
 **Does:** local Markdown second brain; bootstrap for mature repos; doctor; agent `note new`; ranked FTS with type filters; graph-aware context; first-class `changelog` + `plan` types; docs.rs harvest; portable bundles; careful `links --apply`.
 
-**Does not (yet):** neural embeddings; full two-way Obsidian write-back; multi-brain `--scope` SubBrain product; inventing history for you.
+**Does (0.3.22+):** MainBrain / SubBrain multi-brain (`scopes list|detect|…`, `--scope`, attach/mount).
+
+**Does not (yet):** neural embeddings; full two-way Obsidian write-back; inventing history for you.
 
 ---
 

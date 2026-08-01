@@ -108,12 +108,13 @@ pub use plan_status::{
     densify_plan, enrich_plan_index_fields, PlanStatus, PlanStatusDigest, PlanTask,
 };
 pub use scopes::{
-    absorb_all_to_main, absorb_scope, add_scope, attach_subbrain, count_nodes_by_scope,
+    absorb_all_to_main, absorb_scope, add_scope, attach_subbrain, count_nodes_by_scope, detect_path,
     disable_multi, discover_cargo_members, enable_multi, ensure_manifest, format_scopes_text,
-    import_brain, load_manifest, reconcile_scopes, remove_scope_def, save_manifest,
-    sanitize_scope_id, AbsorbAllReport, AbsorbReport, BrainMode, CargoMember, ImportBrainOptions,
-    ImportBrainReport, ReconcileReport, ScopeDef, ScopeSource, WorkspaceManifest,
-    IMPORT_DEFAULT_MAX_BYTES, IMPORT_DEFAULT_MAX_FILES, MAIN_SCOPE,
+    import_brain, load_manifest, reconcile_scopes, remove_scope_def, rewrite_wikilinks_for_import,
+    save_manifest, sanitize_scope_id, scope_for_cwd, suggest_scope_id, AbsorbAllReport, AbsorbReport,
+    BrainMode, CargoMember, DetectReport, ImportBrainOptions, ImportBrainReport, ReconcileReport,
+    ScopeDef, ScopeSource, WorkspaceManifest, IMPORT_DEFAULT_MAX_BYTES, IMPORT_DEFAULT_MAX_FILES,
+    MAIN_SCOPE,
 };
 pub use query::{PendingLink, QueryOptions, RankedHit, ScopeMainInclude};
 pub use registry::{GlobalRankedHit, GlobalRegistry};

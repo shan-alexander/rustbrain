@@ -37,8 +37,9 @@ rustbrain context "roadmap priorities"
 
 - Neural embeddings / hybrid search in the product path  
 - Full two-way Obsidian vault write-back  
-- Multi-brain `--scope` SubBrain CLI  
 - Production ANN or AVX-512 as a marketed feature  
+
+**Shipped (0.3.21+):** MainBrain / SubBrain multi-brain CLI (`scopes`, `--scope`, attach/mount/import).  
 
 Ship history belongs in **[[changelog]]**, not here.
 

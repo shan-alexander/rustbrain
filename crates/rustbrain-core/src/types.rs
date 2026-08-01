@@ -173,6 +173,9 @@ pub struct SyncStats {
     pub mmap_written: bool,
     /// Files that failed to index (errors logged; sync continues).
     pub file_errors: usize,
+    /// Census after sync: node counts by owner scope (`main`, SubBrain ids).
+    #[serde(default)]
+    pub by_scope: std::collections::BTreeMap<String, usize>,
 }
 
 /// Role of a node inside a context bundle.

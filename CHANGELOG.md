@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.22] - 2026-08-01
+
+### Added — multi-brain UX (0.3.22 finish)
+
+- `scopes detect PATH` — suggest SubBrain id + mount/import tips before import
+- CWD auto-scope for `query` / `context` / `graph` (`--no-scope-auto` to disable)
+- `graph --scope` with hubs-only / strict / with-main
+- Copy-import WikiLink rewrite under destination prefix
+- Sync `by_scope` census line; `setup --multi-cargo`
+- Registry GC on load when paths vanish; Cargo brace/`*` member globs
+- CLI test `cli_scopes`; README/AGENTS honesty (multi-brain shipped)
+
 ## [0.3.21] - 2026-08-01
 
 ### Added — MainBrain / SubBrain scopes (multi-crate / multi-root)

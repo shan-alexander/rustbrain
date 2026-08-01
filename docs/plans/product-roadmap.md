@@ -48,12 +48,13 @@ Related goals (when present): ship offline agent context, code↔docs edges, Git
 
 ### Near-term polish (0.3.x line)
 
+- [x] Multi-brain UX 0.3.22: detect, cwd auto-scope, graph --scope, import WikiLink rewrite, by_scope sync, setup --multi-cargo, CLI scopes test
 - [ ] Integration-test coverage for link apply tiers / plan densify / hubs
-- [ ] Doctor rules for thin knowledge, empty scopes (when scopes exist), link hygiene tips
-- [ ] Larger monorepo sync ergonomics (ignore defaults, clearer stats)
+- [x] Doctor rules for scopes (orphan/empty/missing roots)
+- [x] Sync stats by scope; registry prune on load
 - [ ] AST depth: impl/trait/macro coverage; multi-lang only behind explicit features
 - [ ] Canvas read completeness (groups, colors) without requiring write-back
-- [ ] Bundle/registry polish (schema completeness, dead workspace GC)
+- [ ] Bundle schema completeness (further)
 - [ ] `links --apply` SUGGEST human/agent review loop UX
 
 ### Epic A — Multi-brain `--scope` SubBrain (multi-crate / multi-root)

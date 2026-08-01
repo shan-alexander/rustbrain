@@ -95,6 +95,10 @@ impl WorkspaceIndexer {
             }
         }
 
+        if let Ok(counts) = crate::scopes::count_nodes_by_scope(&self.db) {
+            stats.by_scope = counts;
+        }
+
         Ok(stats)
     }
 

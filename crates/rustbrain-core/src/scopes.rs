@@ -403,7 +403,32 @@ pub fn discover_cargo_members(workspace: &Path) -> Result<Vec<CargoMember>> {
 
 fn expand_member_pattern(workspace: &Path, pat: &str) -> Result<Vec<String>> {
     let pat = pat.trim().trim_matches('/').replace('\\', "/");
-    if let Some(parent) = pat.strip_suffix("/*") {
+    // Brace expansion: crates/{foo,bar} or {a,b}
+    if let Some(open) = pat.find('{') {
+        if let Some(close) = pat[open..].find('}') {
+            let close = open + close;
+            let prefix = &pat[..open];
+            let suffix = &pat[close + 1..];
+            let inner = &pat[open + 1..close];
+            let mut out = Vec::new();
+            for part in inner.split(',') {
+                let part = part.trim();
+                if part.is_empty() {
+                    continue;
+                }
+                let expanded = format!("{prefix}{part}{suffix}");
+                out.extend(expand_member_pattern(workspace, &expanded)?);
+            }
+            out.sort();
+            out.dedup();
+            return Ok(out);
+        }
+    }
+    // One-level glob: crates/* or crates/*/src (only first * segment)
+    if let Some(star) = pat.find("/*") {
+        let parent = &pat[..star];
+        let rest = &pat[star + 2..]; // after /*
+        let rest = rest.trim_start_matches('/');
         let dir = workspace.join(parent);
         if !dir.is_dir() {
             return Ok(Vec::new());
@@ -411,15 +436,31 @@ fn expand_member_pattern(workspace: &Path, pat: &str) -> Result<Vec<String>> {
         let mut v = Vec::new();
         for ent in fs::read_dir(&dir)? {
             let ent = ent?;
-            if ent.file_type()?.is_dir() {
-                let name = ent.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') {
-                    continue;
+            if !ent.file_type()?.is_dir() {
+                continue;
+            }
+            let name = ent.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            let candidate = if rest.is_empty() {
+                format!("{}/{}", normalize_rel(parent), name)
+            } else if rest.contains('*') {
+                // recurse remaining globs
+                let nested = format!("{}/{}/{}", normalize_rel(parent), name, rest);
+                v.extend(expand_member_pattern(workspace, &nested)?);
+                continue;
+            } else {
+                format!("{}/{}/{}", normalize_rel(parent), name, rest)
+            };
+            if workspace.join(&candidate).is_dir() || rest.is_empty() {
+                if workspace.join(&candidate).is_dir() {
+                    v.push(normalize_rel(&candidate));
                 }
-                v.push(format!("{}/{}", normalize_rel(parent), name));
             }
         }
         v.sort();
+        v.dedup();
         return Ok(v);
     }
     if workspace.join(&pat).is_dir() {
@@ -427,6 +468,152 @@ fn expand_member_pattern(workspace: &Path, pat: &str) -> Result<Vec<String>> {
     } else {
         Ok(Vec::new())
     }
+}
+
+/// Suggest a path-stable SubBrain id for a directory name or path.
+pub fn suggest_scope_id(path: &Path) -> String {
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("crate");
+    let id = name.to_ascii_lowercase().replace('_', "-");
+    if id.is_empty() || id == "main" {
+        "project".into()
+    } else {
+        id
+    }
+}
+
+/// Report from [`detect_path`] — what id to use for import/attach.
+#[derive(Debug, Clone, Serialize)]
+pub struct DetectReport {
+    /// Absolute path inspected.
+    pub path: String,
+    /// Suggested SubBrain id (directory name, sanitized).
+    pub suggested_id: String,
+    /// True if `path` is under `workspace`.
+    pub under_workspace: bool,
+    /// Workspace-relative root when under_workspace.
+    pub relative_root: Option<String>,
+    /// True if `--mount` / `attach` is possible (under workspace).
+    pub mountable: bool,
+    /// True if path has its own `.brain/db.sqlite`.
+    pub has_nested_brain: bool,
+    /// Existing SubBrain id if this root is already registered.
+    pub existing_scope: Option<String>,
+    /// Human tips.
+    pub tips: Vec<String>,
+}
+
+/// Detect how a path should be attached/imported as a SubBrain.
+///
+/// Agents should run this **before** `import --as` / `attach` to learn the id.
+pub fn detect_path(workspace: &Path, path: &Path) -> Result<DetectReport> {
+    let workspace = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let path = if path.exists() {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        return Err(BrainError::other(format!(
+            "path does not exist: {}",
+            path.display()
+        )));
+    };
+    if !path.is_dir() {
+        return Err(BrainError::other(format!(
+            "path is not a directory: {}",
+            path.display()
+        )));
+    }
+
+    let suggested_id = suggest_scope_id(&path);
+    let under = path.starts_with(&workspace) && path != workspace;
+    let relative_root = if under {
+        path.strip_prefix(&workspace)
+            .ok()
+            .map(|p| normalize_rel(&p.to_string_lossy()))
+    } else {
+        None
+    };
+    let has_nested_brain = path.join(".brain").join("db.sqlite").is_file();
+    let m = load_manifest(&workspace).unwrap_or_else(|_| WorkspaceManifest::single(&workspace));
+    let existing_scope = relative_root.as_ref().and_then(|rel| {
+        m.scopes.iter().find_map(|sc| {
+            if sc.roots.iter().any(|r| r == rel || rel.starts_with(&(r.clone() + "/"))) {
+                Some(sc.id.clone())
+            } else {
+                None
+            }
+        })
+    });
+
+    let mut tips = Vec::new();
+    if let Some(ref id) = existing_scope {
+        tips.push(format!("already a SubBrain root — use --scope {id}"));
+    } else if under {
+        tips.push(format!(
+            "attach: rustbrain scopes attach {suggested_id} --root {}",
+            relative_root.as_deref().unwrap_or("?")
+        ));
+        tips.push(format!(
+            "or mount: rustbrain scopes import --from {} --as {suggested_id} --mount",
+            path.display()
+        ));
+    } else {
+        tips.push(format!(
+            "copy as SubBrain: rustbrain scopes import --from {} --as {suggested_id}",
+            path.display()
+        ));
+        tips.push(
+            "or move/clone under the workspace, then use --mount / attach".into(),
+        );
+    }
+    if has_nested_brain {
+        tips.push(
+            "nested .brain present — local open inside this dir still uses that brain".into(),
+        );
+    }
+
+    Ok(DetectReport {
+        path: path.display().to_string(),
+        suggested_id,
+        under_workspace: under,
+        relative_root,
+        mountable: under,
+        has_nested_brain,
+        existing_scope,
+        tips,
+    })
+}
+
+/// If `cwd` sits under a SubBrain root of `workspace`, return that scope id.
+///
+/// Returns `None` for single mode, workspace root CWD, or paths that only match MainBrain.
+pub fn scope_for_cwd(workspace: &Path, cwd: &Path) -> Option<String> {
+    let m = load_manifest(workspace).ok()?;
+    if !m.is_multi() {
+        return None;
+    }
+    let ws = workspace.canonicalize().ok()?;
+    let cwd = cwd.canonicalize().ok()?;
+    let rel = cwd.strip_prefix(&ws).ok()?;
+    let rel = normalize_rel(&rel.to_string_lossy());
+    if rel.is_empty() {
+        return None;
+    }
+    // Prefer matching as if indexing a file under cwd
+    let probe = format!("{rel}/.");
+    let scope = m.resolve_scope(&probe);
+    if scope == m.main_id || scope == MAIN_SCOPE {
+        // try direct
+        let scope2 = m.resolve_scope(&rel);
+        if scope2 == m.main_id || scope2 == MAIN_SCOPE {
+            return None;
+        }
+        return Some(scope2);
+    }
+    Some(scope)
 }
 
 fn path_scope_id(rel: &str) -> String {
@@ -976,6 +1163,7 @@ pub fn import_brain(
             &source_workspace,
             &source_workspace,
             &dest_abs,
+            &dest_rel,
             opts.force,
             opts.max_files,
             opts.max_bytes,
@@ -1015,6 +1203,7 @@ fn copy_markdown_tree(
     source_root: &Path,
     dir: &Path,
     dest_root: &Path,
+    dest_prefix: &str,
     force: bool,
     max_files: usize,
     max_bytes: u64,
@@ -1044,6 +1233,7 @@ fn copy_markdown_tree(
                 source_root,
                 &path,
                 dest_root,
+                dest_prefix,
                 force,
                 max_files,
                 max_bytes,
@@ -1081,11 +1271,110 @@ fn copy_markdown_tree(
             *skipped += 1;
             continue;
         }
-        fs::copy(&path, &dest)?;
+        let raw = fs::read_to_string(&path)?;
+        let rewritten = rewrite_wikilinks_for_import(&raw, dest_prefix);
+        fs::write(&dest, rewritten)?;
         *copied += 1;
         *bytes += len;
     }
     Ok(())
+}
+
+/// Prefix path-like WikiLink targets so they resolve after copy under `dest_prefix`.
+///
+/// Bare titles / aliases are left alone. Targets that already start with `dest_prefix`
+/// or look like hubs (`readme`, …) are left alone.
+pub fn rewrite_wikilinks_for_import(content: &str, dest_prefix: &str) -> String {
+    let dest_prefix = dest_prefix.trim_matches('/');
+    if dest_prefix.is_empty() {
+        return content.to_string();
+    }
+    let mut out = String::with_capacity(content.len() + 64);
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    let mut in_fence = false;
+    while i < bytes.len() {
+        // toggle ``` fences (line start)
+        if is_line_start(bytes, i) && i + 2 < bytes.len() && &bytes[i..i + 3] == b"```" {
+            in_fence = !in_fence;
+            out.push_str("```");
+            i += 3;
+            continue;
+        }
+        if !in_fence && i + 1 < bytes.len() && bytes[i] == b'[' && bytes[i + 1] == b'[' {
+            if let Some(end) = find_wikilink_end(bytes, i + 2) {
+                let inner = &content[i + 2..end];
+                let rewritten = rewrite_wikilink_inner(inner, dest_prefix);
+                out.push_str("[[");
+                out.push_str(&rewritten);
+                out.push_str("]]");
+                i = end + 2;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+fn is_line_start(bytes: &[u8], i: usize) -> bool {
+    i == 0 || bytes[i - 1] == b'\n'
+}
+
+fn find_wikilink_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut j = start;
+    while j + 1 < bytes.len() {
+        if bytes[j] == b']' && bytes[j + 1] == b']' {
+            return Some(j);
+        }
+        if bytes[j] == b'\n' {
+            return None;
+        }
+        j += 1;
+    }
+    None
+}
+
+fn rewrite_wikilink_inner(inner: &str, dest_prefix: &str) -> String {
+    // [[target]], [[target|alias]], [[target#sec]], [[target#sec|alias]]
+    let (target_part, rest) = if let Some((t, a)) = inner.split_once('|') {
+        (t, Some(format!("|{a}")))
+    } else {
+        (inner, None)
+    };
+    let (path_part, section) = if let Some((p, s)) = target_part.split_once('#') {
+        (p.trim(), Some(s))
+    } else {
+        (target_part.trim(), None)
+    };
+    if path_part.is_empty()
+        || path_part.starts_with("symbol:")
+        || crate::hubs::is_hub_node_id(path_part)
+        || path_part.starts_with(dest_prefix)
+    {
+        return inner.to_string();
+    }
+    // Path-like: contains / or looks like docs/...
+    let path_like = path_part.contains('/')
+        || path_part.starts_with("docs")
+        || path_part.ends_with(".md");
+    if !path_like {
+        return inner.to_string();
+    }
+    let cleaned = path_part.trim_end_matches(".md");
+    let mut new_t = format!("{dest_prefix}/{cleaned}");
+    // collapse double prefix
+    new_t = new_t.replace("//", "/");
+    let mut out = new_t;
+    if let Some(sec) = section {
+        out.push('#');
+        out.push_str(sec);
+    }
+    if let Some(r) = rest {
+        out.push_str(&r);
+    }
+    out
 }
 
 /// Counts of nodes per scope (from SQLite).
@@ -1192,6 +1481,45 @@ mod tests {
     fn sanitize_rejects_main() {
         assert!(sanitize_scope_id("main").is_err());
         assert_eq!(sanitize_scope_id("RustBrain_Core").unwrap(), "rustbrain-core");
+    }
+
+    #[test]
+    fn rewrite_wikilinks_prefixes_paths() {
+        let src = "See [[docs/concepts/raft]] and [[docs/adr/x|Alias]] and [[Bare Title]].\n";
+        let out = rewrite_wikilinks_for_import(src, "docs/subbrains/foreign");
+        assert!(out.contains("[[docs/subbrains/foreign/docs/concepts/raft]]"));
+        assert!(out.contains("[[docs/subbrains/foreign/docs/adr/x|Alias]]"));
+        assert!(out.contains("[[Bare Title]]"));
+    }
+
+    #[test]
+    fn brace_and_star_cargo_patterns() {
+        let dir = tempdir().unwrap();
+        let ws = dir.path();
+        fs::create_dir_all(ws.join("crates/a")).unwrap();
+        fs::create_dir_all(ws.join("crates/b")).unwrap();
+        fs::create_dir_all(ws.join("apps/web")).unwrap();
+        let braced = expand_member_pattern(ws, "crates/{a,b}").unwrap();
+        assert_eq!(braced.len(), 2);
+        let star = expand_member_pattern(ws, "crates/*").unwrap();
+        assert_eq!(star.len(), 2);
+    }
+
+    #[test]
+    fn detect_and_cwd_scope() {
+        let dir = tempdir().unwrap();
+        let ws = dir.path();
+        fs::create_dir_all(ws.join("project-a/src")).unwrap();
+        fs::create_dir_all(ws.join(".brain")).unwrap();
+        enable_multi(ws, false).unwrap();
+        attach_subbrain(ws, "project-a", "project-a", &[]).unwrap();
+        let rep = detect_path(ws, &ws.join("project-a")).unwrap();
+        assert_eq!(rep.suggested_id, "project-a");
+        assert!(rep.mountable);
+        assert_eq!(rep.existing_scope.as_deref(), Some("project-a"));
+        let sc = scope_for_cwd(ws, &ws.join("project-a/src")).unwrap();
+        assert_eq!(sc, "project-a");
+        assert!(scope_for_cwd(ws, ws).is_none());
     }
 
     #[test]
