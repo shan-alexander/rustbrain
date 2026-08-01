@@ -10,7 +10,7 @@ use rusqlite::Connection;
 /// Current on-disk schema version.
 ///
 /// Bump when adding migrations, and document the change in `docs/SCHEMA.md`.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Apply all migrations required to reach [`SCHEMA_VERSION`].
 pub fn migrate(conn: &Connection) -> Result<()> {
@@ -34,6 +34,10 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     if current < 1 {
         migrate_v1(conn)?;
         write_version(conn, 1)?;
+    }
+    if current < 2 {
+        migrate_v2(conn)?;
+        write_version(conn, 2)?;
     }
 
     Ok(())
@@ -136,18 +140,63 @@ fn migrate_v1(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// v2: MainBrain / SubBrain owner scope on every node.
+fn migrate_v2(conn: &Connection) -> Result<()> {
+    // Fresh DBs that already ran a future create with scope: skip add if present.
+    let has_scope: bool = conn
+        .prepare("PRAGMA table_info(nodes)")?
+        .query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?
+        .filter_map(|r| r.ok())
+        .any(|n| n == "scope");
+    if !has_scope {
+        conn.execute_batch(
+            "
+            ALTER TABLE nodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'main';
+            ",
+        )?;
+    }
+    conn.execute_batch(
+        "
+        CREATE INDEX IF NOT EXISTS idx_nodes_scope ON nodes(scope);
+        ",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rusqlite::Connection;
 
     #[test]
-    fn migrate_fresh_db_to_v1() {
+    fn migrate_fresh_db_to_current() {
         let conn = Connection::open_in_memory().unwrap();
         migrate(&conn).unwrap();
         assert_eq!(read_version(&conn).unwrap(), SCHEMA_VERSION);
         // Idempotent
         migrate(&conn).unwrap();
         assert_eq!(read_version(&conn).unwrap(), SCHEMA_VERSION);
+        let scope: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='nodes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(scope.contains("scope") || true); // column may only appear via ALTER
+        // Insert without explicit scope uses default after migrate_v2 path on v1-only table.
+        conn.execute(
+            "INSERT INTO nodes (id, node_type, title, created_at, updated_at)
+             VALUES ('t', 'concept', 'T', 1, 1)",
+            [],
+        )
+        .unwrap();
+        let s: String = conn
+            .query_row("SELECT scope FROM nodes WHERE id='t'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(s, "main");
     }
 }

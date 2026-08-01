@@ -517,6 +517,7 @@ mod tests {
             symbol_hash: None,
             summary: Some(title.into()),
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: 1,
             updated_at: 1,
         }

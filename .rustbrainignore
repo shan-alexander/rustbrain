@@ -1,0 +1,36 @@
+# rustbrain index ignore (gitignore-inspired)
+# Built-in defaults always apply; this file adds more skips.
+
+# --- imported from .gitignore ---
+/target
+**/*.rs.bk
+.brain/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.mmap
+.idea/
+.vscode/
+*.swp
+.DS_Store
+# --- end import ---
+
+# rustbrain: import-gitignore
+# Build / IDE
+target/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Derived data / large blobs
+*.parquet
+*.arrow
+data/
+datasets/
+
+# Logs and local env
+*.log
+.env
+.env.*

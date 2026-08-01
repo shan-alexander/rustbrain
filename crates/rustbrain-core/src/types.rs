@@ -85,6 +85,10 @@ impl std::fmt::Display for NodeType {
     }
 }
 
+fn default_node_scope() -> String {
+    crate::scopes::MAIN_SCOPE.to_string()
+}
+
 /// A node entity in the brain graph (note, symbol, ADR, …).
 ///
 /// # Identity
@@ -92,6 +96,11 @@ impl std::fmt::Display for NodeType {
 /// [`Node::id`] is a stable workspace-relative path slug for notes
 /// (e.g. `docs/concepts/raft`) or a `symbol/…` path for AST entities.
 /// See [`crate::id::node_id_from_rel_path`] and [`crate::symbols::symbol_node_id`].
+///
+/// # Scope (MainBrain / SubBrain)
+///
+/// [`Node::scope`] is the owner SubBrain id, or [`crate::scopes::MAIN_SCOPE`] for
+/// MainBrain. Single-mode workspaces keep every node on `main`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Node {
     /// Stable unique id (path slug or `symbol/…`).
@@ -108,6 +117,9 @@ pub struct Node {
     pub summary: Option<String>,
     /// BLAKE3 hex of source bytes for change detection (notes/symbols).
     pub content_hash: Option<String>,
+    /// Owner scope id (`main` or a SubBrain id). Default `main`.
+    #[serde(default = "default_node_scope")]
+    pub scope: String,
     /// Unix epoch seconds; preserved across content updates.
     pub created_at: i64,
     /// Unix epoch seconds; bumped when content changes.

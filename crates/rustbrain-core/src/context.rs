@@ -54,6 +54,12 @@ pub struct ContextOptions {
     pub hop_from_docs_only: bool,
     /// Include body excerpts from FTS content (or summary fallback). Default true.
     pub include_excerpts: bool,
+    /// Optional SubBrain scope filter for seeds (neighbors may still hop out).
+    pub scope: Option<String>,
+    /// MainBrain id when scoping (default `main`).
+    pub main_scope: String,
+    /// How much MainBrain to mix into scoped seeds (default hubs-only).
+    pub scope_main: crate::query::ScopeMainInclude,
 }
 
 impl Default for ContextOptions {
@@ -71,6 +77,9 @@ impl Default for ContextOptions {
             hop_to_symbols: true,
             hop_from_docs_only: true,
             include_excerpts: true,
+            scope: None,
+            main_scope: crate::scopes::MAIN_SCOPE.to_string(),
+            scope_main: crate::query::ScopeMainInclude::HubsOnly,
         }
     }
 }
@@ -93,6 +102,9 @@ impl ContextOptions {
             no_symbols: self.no_symbols,
             include_types: self.include_types.clone(),
             exclude_types: self.exclude_types.clone(),
+            scope: self.scope.clone(),
+            main_scope: self.main_scope.clone(),
+            scope_main: self.scope_main,
             ..QueryOptions::default()
         }
     }

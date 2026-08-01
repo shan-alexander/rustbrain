@@ -60,6 +60,7 @@ pub mod mmap;
 pub mod mutator;
 pub mod note;
 pub mod plan_status;
+pub mod scopes;
 #[cfg(feature = "obsidian")]
 pub mod obsidian;
 pub mod query;
@@ -106,7 +107,15 @@ pub use note::{create_note, default_dir_for_type, slugify_title, NoteCreated, No
 pub use plan_status::{
     densify_plan, enrich_plan_index_fields, PlanStatus, PlanStatusDigest, PlanTask,
 };
-pub use query::{PendingLink, QueryOptions, RankedHit};
+pub use scopes::{
+    absorb_all_to_main, absorb_scope, add_scope, attach_subbrain, count_nodes_by_scope,
+    disable_multi, discover_cargo_members, enable_multi, ensure_manifest, format_scopes_text,
+    import_brain, load_manifest, reconcile_scopes, remove_scope_def, save_manifest,
+    sanitize_scope_id, AbsorbAllReport, AbsorbReport, BrainMode, CargoMember, ImportBrainOptions,
+    ImportBrainReport, ReconcileReport, ScopeDef, ScopeSource, WorkspaceManifest,
+    IMPORT_DEFAULT_MAX_BYTES, IMPORT_DEFAULT_MAX_FILES, MAIN_SCOPE,
+};
+pub use query::{PendingLink, QueryOptions, RankedHit, ScopeMainInclude};
 pub use registry::{GlobalRankedHit, GlobalRegistry};
 pub use storage::{Database, SCHEMA_VERSION};
 pub use symbols::{extract_symbol_refs, symbol_node_id, SymbolRef};

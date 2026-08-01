@@ -1,12 +1,12 @@
 //! Criterion benches: serde_json vs jshift on rustbrain-shaped workloads.
 //!
 //! ```bash
-//! cargo bench -p json-stack-bench --bench serde_vs_jshift
+//! cargo bench -p bench --bench serde_vs_jshift
 //! ```
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use jshift::{find_value, mutate_value, parse_path, JsonDoc, JsonView, TypedDoc};
-use json_stack_bench::{
+use bench::{
     large_catalog_json, sample_bundle, sample_doctor, sample_workspace, BrainBundleLite,
     WorkspaceMeta, WorkspaceMetaView,
 };
@@ -61,7 +61,7 @@ fn bench_doctor_report(c: &mut Criterion) {
     });
     g.bench_function("serde_from_slice", |b| {
         b.iter(|| {
-            serde_json::from_slice::<json_stack_bench::DoctorReportLite>(black_box(&bytes)).unwrap()
+            serde_json::from_slice::<bench::DoctorReportLite>(black_box(&bytes)).unwrap()
         })
     });
     // jshift: sparse field reads from already-encoded doctor JSON (common agent pattern)

@@ -22,6 +22,8 @@ pub struct WorkspaceIndexer {
     db: Database,
     workspace: PathBuf,
     ignore: IgnoreSet,
+    /// Scope assignment (MainBrain / SubBrain).
+    scopes: crate::scopes::WorkspaceManifest,
 }
 
 impl WorkspaceIndexer {
@@ -37,11 +39,19 @@ impl WorkspaceIndexer {
         // Also auto-import gitignore when .rustbrainignore asks for it.
         let import_gi = import_gi || rustbrainignore_requests_gitignore(&workspace);
         let ignore = IgnoreSet::load(&workspace, import_gi).unwrap_or_default();
+        let scopes = crate::scopes::load_manifest(&workspace).unwrap_or_else(|_| {
+            crate::scopes::WorkspaceManifest::single(&workspace)
+        });
         Self {
             db,
             workspace,
             ignore,
+            scopes,
         }
+    }
+
+    fn owner_scope(&self, rel_str: &str) -> String {
+        self.scopes.resolve_scope(rel_str)
     }
 
     /// Borrow the database.
@@ -126,8 +136,41 @@ impl WorkspaceIndexer {
             .map(|h| h.node_id().to_string())
             .unwrap_or_else(|| node_id_from_rel_path(&rel));
 
+        let mut scope = self.owner_scope(&rel_str);
+        // Frontmatter `scope:` may override path ownership when multi-brain and id is known.
+        if self.scopes.is_multi() {
+            #[cfg(feature = "obsidian")]
+            {
+                let (fm_early, _) = crate::obsidian::parse_frontmatter(&content);
+                if let Some(fm) = fm_early.as_ref() {
+                    if let Some(s) = fm
+                        .extra
+                        .get("scope")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.trim().to_ascii_lowercase().replace('_', "-"))
+                        .filter(|s| !s.is_empty())
+                    {
+                        if s == self.scopes.main_id
+                            || self.scopes.find_scope(&s).is_some()
+                            || s == crate::scopes::MAIN_SCOPE
+                        {
+                            scope = if s == crate::scopes::MAIN_SCOPE {
+                                self.scopes.main_id.clone()
+                            } else {
+                                self.scopes
+                                    .find_scope(&s)
+                                    .map(|sc| sc.id.clone())
+                                    .unwrap_or(s)
+                            };
+                        }
+                    }
+                }
+            }
+        }
         if let Some(existing) = self.db.get_content_hash(&node_id)? {
             if existing == hash {
+                // Keep scope aligned when multi-brain roots change without content edits.
+                let _ = self.db.set_node_scope(&node_id, &scope);
                 stats.nodes_skipped_unchanged += 1;
                 return Ok(());
             }
@@ -189,7 +232,7 @@ impl WorkspaceIndexer {
             first_substantive_line(body)
         };
 
-        let tags: Vec<String> = {
+        let mut tags: Vec<String> = {
             #[cfg(feature = "obsidian")]
             {
                 frontmatter
@@ -262,14 +305,22 @@ impl WorkspaceIndexer {
             id: node_id.clone(),
             node_type,
             title: title.clone(),
-            file_path: Some(rel_str),
+            file_path: Some(rel_str.clone()),
             symbol_hash: None,
             summary: Some(summary),
             content_hash: Some(hash),
+            scope: scope.clone(),
             created_at: now,
             updated_at: now,
         };
 
+        // Densify scope token for FTS when multi-brain is on.
+        if self.scopes.is_multi() {
+            let token = format!("scope:{scope}");
+            if !tags.iter().any(|t| t == &token) {
+                tags.push(token);
+            }
+        }
         let tags_str = tags.join(" ");
         let mut links_for_tx: Vec<(String, String)> = {
             #[cfg(feature = "obsidian")]
@@ -546,6 +597,10 @@ impl WorkspaceIndexer {
                 .map(|existing| existing == chash)
                 .unwrap_or(false);
 
+            let scope = self.owner_scope(&anchor.file_path);
+            if unchanged {
+                let _ = self.db.set_node_scope(&node_id, &scope);
+            }
             if !unchanged {
                 let now = Utc::now().timestamp();
                 let node = Node {
@@ -556,6 +611,7 @@ impl WorkspaceIndexer {
                     symbol_hash: Some(anchor.symbol_hash),
                     summary: anchor.doc_comment.clone(),
                     content_hash: Some(chash),
+                    scope: scope.clone(),
                     created_at: now,
                     updated_at: now,
                 };

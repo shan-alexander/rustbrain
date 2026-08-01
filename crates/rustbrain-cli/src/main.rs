@@ -12,9 +12,12 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use rustbrain_core::{
-    bootstrap_workspace, create_note, normalize_target_arg, run_doctor, run_doctor_with,
-    ApplyOptions, ApplyStyle, BootstrapMode, BootstrapOptions, Brain, DoctorOptions,
-    GlobalRegistry, GraphDirection, GraphOptions, NoteNewOptions, NodeType, QueryOptions,
+    absorb_all_to_main, absorb_scope, add_scope, attach_subbrain, bootstrap_workspace,
+    count_nodes_by_scope, create_note, disable_multi, enable_multi, format_scopes_text,
+    import_brain, load_manifest, normalize_target_arg, reconcile_scopes, remove_scope_def,
+    run_doctor, run_doctor_with, ApplyOptions, ApplyStyle, BootstrapMode, BootstrapOptions, Brain,
+    DoctorOptions, GlobalRegistry, GraphDirection, GraphOptions, ImportBrainOptions,
+    NoteNewOptions, NodeType, QueryOptions, ScopeMainInclude, ScopeSource, MAIN_SCOPE,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -38,9 +41,11 @@ Examples:
   rustbrain setup --yes
   rustbrain sync
   rustbrain doctor
+  rustbrain scopes list
+  rustbrain scopes enable --cargo
+  rustbrain query \"topic\" --scope rustbrain-cli
+  rustbrain context \"why <decision>\" --scope rustbrain-core
   rustbrain graph docs/concepts/foo.md
-  rustbrain context \"why <decision>\"
-  rustbrain query \"topic\" --scores
 
 Recommended first goal (body goes after the H1 title; --body and --note are the same):
   rustbrain note new --type goal --title \"Use rustbrain well\" \\
@@ -224,6 +229,15 @@ enum Commands {
         /// Include all types including symbols
         #[arg(long, default_value_t = false)]
         all_types: bool,
+        /// SubBrain scope filter (multi-brain mode): seeds in this scope (+ MainBrain hubs)
+        #[arg(long, value_name = "ID")]
+        scope: Option<String>,
+        /// With `--scope`: only the SubBrain (no MainBrain hubs)
+        #[arg(long, default_value_t = false)]
+        scope_strict: bool,
+        /// With `--scope`: include all MainBrain nodes (default is hubs only)
+        #[arg(long, default_value_t = false)]
+        scope_with_main: bool,
         /// Workspace root containing `.brain/`
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
@@ -293,9 +307,23 @@ enum Commands {
         /// Output format: `markdown` (default) or `xml`
         #[arg(short = 'F', long, default_value = "markdown")]
         format: String,
+        /// SubBrain scope filter for seeds (neighbors may hop out)
+        #[arg(long, value_name = "ID")]
+        scope: Option<String>,
+        /// With `--scope`: only the SubBrain (no MainBrain hubs)
+        #[arg(long, default_value_t = false)]
+        scope_strict: bool,
+        /// With `--scope`: include all MainBrain nodes (default is hubs only)
+        #[arg(long, default_value_t = false)]
+        scope_with_main: bool,
         /// Workspace root (walks parents for `.brain` like git)
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
+    },
+    /// MainBrain / SubBrain scopes (multi-crate / multi-root; opt-in)
+    Scopes {
+        #[command(subcommand)]
+        cmd: ScopesCmd,
     },
     /// Watch workspace for changes and re-index (debounced)
     Watch {
@@ -314,6 +342,9 @@ enum Commands {
         /// Strip repo-local AST symbol nodes and file paths
         #[arg(long, default_value_t = true)]
         decouple_ast: bool,
+        /// Export only one SubBrain (+ hubs) for sharing without full merge
+        #[arg(long, value_name = "ID")]
+        scope: Option<String>,
         /// Workspace root
         #[arg(short = 'w', long, default_value = ".")]
         workspace: PathBuf,
@@ -363,6 +394,129 @@ enum NoteCmd {
         /// Sync after write (default true; use `--no-sync` to skip)
         #[arg(long, default_value_t = true, hide = true)]
         sync: bool,
+        /// SubBrain id: write under that scope's tree (multi-brain)
+        #[arg(long, value_name = "ID")]
+        scope: Option<String>,
+    },
+}
+
+/// `rustbrain scopes` subcommands.
+#[derive(Subcommand)]
+enum ScopesCmd {
+    /// List mode + SubBrains + node counts (default)
+    List {
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// Enable multi-brain mode (optional Cargo workspace discovery)
+    Enable {
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        /// Discover Cargo `[workspace].members` as SubBrains
+        #[arg(long, default_value_t = false)]
+        cargo: bool,
+        /// Enable multi with no SubBrains yet (manual `scopes add`)
+        #[arg(long, default_value_t = false)]
+        empty: bool,
+        /// Re-sync after enabling so node.scope is assigned
+        #[arg(long, default_value_t = true)]
+        sync: bool,
+        #[arg(long, default_value_t = false)]
+        no_sync: bool,
+    },
+    /// Disable multi-brain (single MainBrain bag)
+    Disable {
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        /// Reassign every node to main and clear SubBrain defs
+        #[arg(long, default_value_t = false)]
+        absorb_all: bool,
+        /// Drop scope defs from manifest (without absorb_all, SQLite scopes stay until re-sync)
+        #[arg(long, default_value_t = false)]
+        clear: bool,
+    },
+    /// Add or update a SubBrain root
+    Add {
+        /// Scope id (path-stable, e.g. rustbrain-core)
+        id: String,
+        /// Workspace-relative root(s) owned by this SubBrain
+        #[arg(long = "root", required = true)]
+        roots: Vec<String>,
+        /// Optional aliases (e.g. Cargo package name)
+        #[arg(long = "alias")]
+        aliases: Vec<String>,
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        #[arg(long, default_value_t = true)]
+        sync: bool,
+        #[arg(long, default_value_t = false)]
+        no_sync: bool,
+    },
+    /// Remove a SubBrain definition from the manifest
+    Remove {
+        id: String,
+        /// Reassign that scope's nodes to MainBrain first
+        #[arg(long, default_value_t = false)]
+        absorb: bool,
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+    },
+    /// Reassign a SubBrain's nodes into MainBrain and drop the SubBrain def
+    Absorb {
+        /// SubBrain id, or `all` for every SubBrain + single mode
+        id: String,
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+    },
+    /// Import another workspace as a SubBrain (separate) or merge into MainBrain
+    Import {
+        /// Source workspace path (contains notes / optional `.brain`)
+        #[arg(long = "from")]
+        from: PathBuf,
+        /// Keep separate as SubBrain id (share without merge)
+        #[arg(long = "as")]
+        as_scope: Option<String>,
+        /// Merge into MainBrain (`main`) — default if `--as` omitted
+        #[arg(long = "into")]
+        into: Option<String>,
+        /// Destination root when copying (not used with `--mount`)
+        #[arg(long)]
+        root: Option<String>,
+        /// Attach source path under this workspace without copying (umbrella)
+        #[arg(long, default_value_t = false)]
+        mount: bool,
+        /// Overwrite existing files when copying
+        #[arg(long, default_value_t = false)]
+        force: bool,
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        #[arg(long, default_value_t = true)]
+        sync: bool,
+        #[arg(long, default_value_t = false)]
+        no_sync: bool,
+    },
+    /// Attach an existing subdirectory as SubBrain (no copy) — umbrella workspaces
+    Attach {
+        /// SubBrain id
+        id: String,
+        /// Workspace-relative root (e.g. project-a)
+        #[arg(long)]
+        root: String,
+        #[arg(long = "alias")]
+        aliases: Vec<String>,
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
+        #[arg(long, default_value_t = true)]
+        sync: bool,
+        #[arg(long, default_value_t = false)]
+        no_sync: bool,
+    },
+    /// Recompute every node's scope from manifest (+ frontmatter); clear drift
+    Reconcile {
+        #[arg(short = 'w', long, default_value = ".")]
+        workspace: PathBuf,
     },
 }
 
@@ -559,6 +713,7 @@ fn run() -> Result<ExitCode> {
                 workspace,
                 no_sync,
                 sync,
+                scope,
             } => {
                 let do_sync = sync && !no_sync;
                 let node_type = NodeType::parse(&r#type).ok_or_else(|| {
@@ -592,6 +747,7 @@ fn run() -> Result<ExitCode> {
                         aliases,
                         dir,
                         force,
+                        scope,
                     },
                 )?;
                 println!(
@@ -772,6 +928,9 @@ fn run() -> Result<ExitCode> {
             with_symbols,
             r#type,
             all_types,
+            scope,
+            scope_strict,
+            scope_with_main,
             workspace,
         } => {
             // Note-first by default (0.3.1+). Symbols only with --with-symbols / --all-types.
@@ -790,6 +949,24 @@ fn run() -> Result<ExitCode> {
             if let Some(types) = r#type {
                 opts.include_types = parse_types_list(&types)?;
                 opts.no_symbols = false;
+            }
+            if let Some(s) = scope {
+                let m = load_manifest(&workspace).unwrap_or_else(|_| {
+                    rustbrain_core::WorkspaceManifest::single(&workspace)
+                });
+                let resolved = m
+                    .find_scope(&s)
+                    .map(|sc| sc.id.clone())
+                    .unwrap_or(s);
+                opts.scope = Some(resolved);
+                opts.main_scope = m.main_id;
+                opts.scope_main = if scope_strict {
+                    ScopeMainInclude::Strict
+                } else if scope_with_main {
+                    ScopeMainInclude::AllMain
+                } else {
+                    ScopeMainInclude::HubsOnly
+                };
             }
 
             if all_workspaces {
@@ -949,6 +1126,9 @@ fn run() -> Result<ExitCode> {
             no_symbols,
             r#type,
             format,
+            scope,
+            scope_strict,
+            scope_with_main,
             workspace,
         } => {
             let topic = for_prompt
@@ -978,6 +1158,24 @@ fn run() -> Result<ExitCode> {
                 opts.include_types = parse_types_list(&types)?;
                 opts.no_symbols = false;
             }
+            if let Some(s) = scope {
+                let m = load_manifest(brain.workspace()).unwrap_or_else(|_| {
+                    rustbrain_core::WorkspaceManifest::single(brain.workspace())
+                });
+                let resolved = m
+                    .find_scope(&s)
+                    .map(|sc| sc.id.clone())
+                    .unwrap_or(s);
+                opts.scope = Some(resolved);
+                opts.main_scope = m.main_id;
+                opts.scope_main = if scope_strict {
+                    ScopeMainInclude::Strict
+                } else if scope_with_main {
+                    ScopeMainInclude::AllMain
+                } else {
+                    ScopeMainInclude::HubsOnly
+                };
+            }
             let bundle = brain.context_for_prompt_with(&topic, &opts)?;
             match format.as_str() {
                 "markdown" | "md" => print!("{}", bundle.to_markdown()),
@@ -986,6 +1184,242 @@ fn run() -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
+        Commands::Scopes { cmd } => match cmd {
+            ScopesCmd::List { workspace, json } => {
+                let brain = Brain::open_or_create(&workspace)?;
+                let m = load_manifest(brain.workspace())?;
+                let counts = count_nodes_by_scope(brain.database())?;
+                if json {
+                    let payload = serde_json::json!({
+                        "manifest": m,
+                        "counts": counts,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&payload)?);
+                } else {
+                    print!("{}", format_scopes_text(&m, &counts));
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Enable {
+                workspace,
+                cargo,
+                empty,
+                sync,
+                no_sync,
+            } => {
+                if !cargo && !empty {
+                    bail!("pass --cargo (discover workspace members) and/or --empty (multi with no SubBrains yet)");
+                }
+                let m = if cargo {
+                    enable_multi(&workspace, true)?
+                } else {
+                    enable_multi(&workspace, false)?
+                };
+                println!(
+                    "multi-brain enabled ({} SubBrain(s))",
+                    m.scopes.len()
+                );
+                for sc in &m.scopes {
+                    println!("  {} → {}", sc.id, sc.roots.join(", "));
+                }
+                if sync && !no_sync {
+                    let mut brain = Brain::open_or_create(&workspace)?;
+                    let stats = brain.sync()?;
+                    println!(
+                        "synced: upserted={} skipped={} file_errors={}",
+                        stats.nodes_upserted, stats.nodes_skipped_unchanged, stats.file_errors
+                    );
+                } else {
+                    println!("tip: rustbrain sync  # assign node.scope from roots");
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Disable {
+                workspace,
+                absorb_all,
+                clear,
+            } => {
+                let brain = Brain::open_or_create(&workspace)?;
+                if absorb_all {
+                    let report = absorb_all_to_main(brain.workspace(), brain.database())?;
+                    println!(
+                        "disabled multi-brain; absorbed {} SubBrain(s); reassigned {} node(s) → main",
+                        report.scopes_removed.len(),
+                        report.nodes_reassigned
+                    );
+                } else {
+                    let m = disable_multi(brain.workspace(), clear)?;
+                    println!(
+                        "mode: {} (scopes kept in manifest: {})",
+                        m.mode.as_str(),
+                        m.scopes.len()
+                    );
+                    println!("tip: use --absorb-all to reassign all nodes to main and clear SubBrains");
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Add {
+                id,
+                roots,
+                aliases,
+                workspace,
+                sync,
+                no_sync,
+            } => {
+                let m = add_scope(
+                    &workspace,
+                    &id,
+                    &roots,
+                    &aliases,
+                    ScopeSource::Manual,
+                )?;
+                println!("SubBrain {:?} roots={:?}", id, roots);
+                println!("mode: {}", m.mode.as_str());
+                if sync && !no_sync {
+                    let mut brain = Brain::open_or_create(&workspace)?;
+                    let stats = brain.sync()?;
+                    println!(
+                        "synced: upserted={} skipped={}",
+                        stats.nodes_upserted, stats.nodes_skipped_unchanged
+                    );
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Remove {
+                id,
+                absorb,
+                workspace,
+            } => {
+                let brain = Brain::open_or_create(&workspace)?;
+                if absorb {
+                    let report = absorb_scope(brain.workspace(), brain.database(), &id)?;
+                    println!(
+                        "absorbed {:?} → main ({} nodes); removed SubBrain def",
+                        report.absorbed_id, report.nodes_reassigned
+                    );
+                } else {
+                    remove_scope_def(brain.workspace(), &id)?;
+                    println!(
+                        "removed SubBrain def {id:?} (nodes keep old scope until absorb or re-sync)"
+                    );
+                    println!("tip: rustbrain scopes absorb {id}");
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Absorb { id, workspace } => {
+                let brain = Brain::open_or_create(&workspace)?;
+                if id.eq_ignore_ascii_case("all") {
+                    let report = absorb_all_to_main(brain.workspace(), brain.database())?;
+                    println!(
+                        "absorbed all SubBrains → main ({} scopes, {} nodes); mode=single",
+                        report.scopes_removed.len(),
+                        report.nodes_reassigned
+                    );
+                } else {
+                    let report = absorb_scope(brain.workspace(), brain.database(), &id)?;
+                    println!(
+                        "absorbed {:?} → main ({} nodes)",
+                        report.absorbed_id, report.nodes_reassigned
+                    );
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Import {
+                from,
+                as_scope,
+                into,
+                root,
+                mount,
+                force,
+                workspace,
+                sync,
+                no_sync,
+            } => {
+                let into_scope = if let Some(a) = as_scope {
+                    a
+                } else if let Some(i) = into {
+                    i
+                } else {
+                    MAIN_SCOPE.to_string()
+                };
+                let opts = ImportBrainOptions {
+                    into_scope: into_scope.clone(),
+                    dest_root: root,
+                    copy_markdown: !mount,
+                    force,
+                    mount,
+                    ..Default::default()
+                };
+                let report = import_brain(&workspace, &from, &opts)?;
+                if report.mounted {
+                    println!(
+                        "mounted {} as SubBrain {:?} (root={}, no copy)",
+                        report.source, report.into_scope, report.dest_root
+                    );
+                } else {
+                    println!(
+                        "imported from {} → scope {:?} root={} copied={} skipped={} bytes={}",
+                        report.source,
+                        report.into_scope,
+                        report.dest_root,
+                        report.files_copied,
+                        report.files_skipped,
+                        report.bytes_copied
+                    );
+                }
+                if report.scope_registered {
+                    println!("SubBrain registered (kept separate — not merged into MainBrain)");
+                } else if report.into_scope == MAIN_SCOPE {
+                    println!("merged into MainBrain (use --as <id> to keep a separate SubBrain)");
+                }
+                if sync && !no_sync {
+                    let mut brain = Brain::open_or_create(&workspace)?;
+                    let stats = brain.sync()?;
+                    let rec = reconcile_scopes(brain.workspace(), brain.database())?;
+                    println!(
+                        "synced: upserted={} · reconcile: updated={} unchanged={}",
+                        stats.nodes_upserted, rec.updated, rec.unchanged
+                    );
+                } else {
+                    println!("tip: rustbrain sync && rustbrain scopes reconcile");
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Attach {
+                id,
+                root,
+                aliases,
+                workspace,
+                sync,
+                no_sync,
+            } => {
+                let m = attach_subbrain(&workspace, &id, &root, &aliases)?;
+                println!(
+                    "attached SubBrain {:?} → root {root} (mode={})",
+                    id,
+                    m.mode.as_str()
+                );
+                if sync && !no_sync {
+                    let mut brain = Brain::open_or_create(&workspace)?;
+                    let stats = brain.sync()?;
+                    let rec = reconcile_scopes(brain.workspace(), brain.database())?;
+                    println!(
+                        "synced upserted={} · reconcile updated={}",
+                        stats.nodes_upserted, rec.updated
+                    );
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ScopesCmd::Reconcile { workspace } => {
+                let brain = Brain::open_or_create(&workspace)?;
+                let rep = reconcile_scopes(brain.workspace(), brain.database())?;
+                println!(
+                    "reconcile: mode={} updated={} unchanged={} orphan_scopes={:?}",
+                    rep.mode, rep.updated, rep.unchanged, rep.orphan_scopes_cleared
+                );
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         Commands::Watch {
             workspace,
             debounce_ms,
@@ -1001,6 +1435,7 @@ fn run() -> Result<ExitCode> {
         Commands::Export {
             out,
             decouple_ast,
+            scope,
             workspace,
         } => {
             let brain = Brain::open(&workspace).with_context(|| {
@@ -1010,10 +1445,14 @@ fn run() -> Result<ExitCode> {
                 )
             })?;
             println!(
-                "exporting to {} (decouple_ast={decouple_ast}) ...",
-                out.display()
+                "exporting to {} (decouple_ast={decouple_ast}{}) ...",
+                out.display(),
+                scope
+                    .as_ref()
+                    .map(|s| format!(" scope={s}"))
+                    .unwrap_or_default()
             );
-            brain.export(&out, decouple_ast)?;
+            brain.export_scope(&out, decouple_ast, scope.as_deref())?;
             println!("export complete");
             Ok(ExitCode::SUCCESS)
         }

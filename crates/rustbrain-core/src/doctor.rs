@@ -266,6 +266,8 @@ pub fn run_doctor_with(workspace: &Path, opts: &DoctorOptions) -> Result<DoctorR
         });
     }
 
+    assess_scopes(&workspace, &db, &mut findings)?;
+
     let orphan_list = crate::autolink::list_orphan_notes(&db)?;
     let orphan_notes = orphan_list.len();
     if orphan_notes > 0 {
@@ -420,6 +422,92 @@ fn assess_readme_and_harvest(
             message: "README.md present but no docs/goals/from-readme.md — run `rustbrain bootstrap --yes --write` (or --force) then sync"
                 .into(),
         });
+    }
+
+    Ok(())
+}
+
+/// MainBrain / SubBrain health (info/warn; never invents scopes).
+fn assess_scopes(
+    workspace: &Path,
+    db: &Database,
+    findings: &mut Vec<DoctorFinding>,
+) -> Result<()> {
+    let m = crate::scopes::load_manifest(workspace)?;
+    let counts = crate::scopes::count_nodes_by_scope(db)?;
+    let known: std::collections::BTreeSet<String> = m.all_scope_ids().into_iter().collect();
+
+    if m.is_multi() && m.scopes.is_empty() {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Info,
+            code: "multi_empty_scopes".into(),
+            message: "multi-brain mode with no SubBrains — `scopes add` / `scopes enable --cargo` / `scopes attach`, or `scopes disable`"
+                .into(),
+        });
+    }
+
+    for err in m.validate() {
+        findings.push(DoctorFinding {
+            severity: DoctorSeverity::Warn,
+            code: "scope_manifest_invalid".into(),
+            message: err,
+        });
+    }
+
+    if !m.is_multi() {
+        let non_main: usize = counts
+            .iter()
+            .filter(|(s, _)| *s != &m.main_id && *s != crate::scopes::MAIN_SCOPE)
+            .map(|(_, c)| *c)
+            .sum();
+        if non_main > 0 {
+            findings.push(DoctorFinding {
+                severity: DoctorSeverity::Warn,
+                code: "scope_db_mode_mismatch".into(),
+                message: format!(
+                    "mode=single but {non_main} node(s) have non-main scope — run `rustbrain scopes reconcile` or `scopes absorb all`"
+                ),
+            });
+        }
+        return Ok(());
+    }
+
+    for (scope, n) in &counts {
+        if *n == 0 {
+            continue;
+        }
+        if !known.contains(scope) {
+            findings.push(DoctorFinding {
+                severity: DoctorSeverity::Warn,
+                code: "orphan_scope_rows".into(),
+                message: format!(
+                    "scope {scope:?} has {n} node(s) but is not in workspace.json — `scopes reconcile` or `scopes absorb {scope}`"
+                ),
+            });
+        }
+    }
+
+    for sc in &m.scopes {
+        let n = counts.get(&sc.id).copied().unwrap_or(0);
+        if n == 0 {
+            findings.push(DoctorFinding {
+                severity: DoctorSeverity::Info,
+                code: "empty_subbrain".into(),
+                message: format!(
+                    "SubBrain {:?} has 0 nodes — check roots {:?}; run `sync` / `scopes reconcile`",
+                    sc.id, sc.roots
+                ),
+            });
+        }
+        for r in &sc.roots {
+            if !workspace.join(r).exists() {
+                findings.push(DoctorFinding {
+                    severity: DoctorSeverity::Warn,
+                    code: "missing_scope_root".into(),
+                    message: format!("SubBrain {:?} root missing on disk: {r}", sc.id),
+                });
+            }
+        }
     }
 
     Ok(())

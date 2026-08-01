@@ -32,10 +32,10 @@ Removing serde derive from those types is not free: YAML has no jshift equivalen
 ## Bench harness
 
 ```bash
-cargo bench -p json-stack-bench --bench serde_vs_jshift
+cargo bench -p bench --bench serde_vs_jshift
 ```
 
-Crate: [`crates/json-stack-bench`](../crates/json-stack-bench) (`publish = false`), jshift **0.7**, shapes modeled on workspace markers, doctor reports, brainbundles, and fat catalogs.
+Crate: [`crates/bench`](../crates/bench) (`publish = false`), jshift **0.7**, shapes modeled on workspace markers, doctor reports, brainbundles, and fat catalogs. Engine performance benches live alongside: `cargo bench -p bench --bench rustbrain_performance`.
 
 ## Results (release, x86_64 Linux, sample-size 50)
 
@@ -109,7 +109,7 @@ jshift’s own docs agree: closed emit of small cards and full small JSON favor 
 
 **Did:**
 
-- Added reproducible benches under `crates/json-stack-bench`
+- Added reproducible benches under `crates/bench`
 - Documented this decision
 - Kept / documented optional `jshift` feature for mutate/path helpers
 - Workspace pin **jshift 0.7** (API used by mutator: `parse_path`, `find_value`, `mutate_value` stable)
@@ -128,11 +128,11 @@ Revisit only if rustbrain gains a real workload like:
 2. Patching large on-disk JSON manifests in place without re-encoding
 3. Open schemas with large unknown payloads where full `Deserialize` is wasteful
 
-Then enable `jshift` at those call sites and re-run `json-stack-bench` (extend it with the new shape). Do **not** migrate full-document CLI/export “for consistency.”
+Then enable `jshift` at those call sites and re-run `cargo bench -p bench --bench serde_vs_jshift` (extend it with the new shape). Do **not** migrate full-document CLI/export “for consistency.”
 
 ## Re-run
 
 ```bash
 export PATH="$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$PATH"
-cargo bench -p json-stack-bench --bench serde_vs_jshift
+cargo bench -p bench --bench serde_vs_jshift
 ```

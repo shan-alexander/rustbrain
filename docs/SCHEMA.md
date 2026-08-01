@@ -1,7 +1,7 @@
-# rustbrain SQLite Schema (v1)
+# rustbrain SQLite Schema (v2)
 
 **File:** `.brain/db.sqlite`  
-**Schema version:** `1` (stored in `schema_meta`)
+**Schema version:** `2` (stored in `schema_meta`)
 
 All timestamps are Unix epoch seconds (`INTEGER`).  
 Foreign keys are enabled (`PRAGMA foreign_keys = ON`).  
@@ -25,8 +25,11 @@ Recommended pragmas: `journal_mode=WAL`, `busy_timeout=5000`.
 | symbol_hash | INTEGER | Optional u64 (stored as i64) |
 | summary | TEXT | Short summary |
 | content_hash | TEXT | BLAKE3 hex of source bytes (change detection) |
+| scope | TEXT | Owner SubBrain id or `main` (MainBrain). Default `main`. Added in schema **v2**. |
 | created_at | INTEGER | Preserved across upserts |
 | updated_at | INTEGER | Bumped on content change |
+
+Index: `idx_nodes_scope` on `scope`.
 
 ## edges
 
@@ -94,6 +97,23 @@ CREATE VIRTUAL TABLE node_fts USING fts5(
 
 Applied by `rustbrain_core::storage::migrations::migrate`.  
 Opening a DB with `schema_version > SCHEMA_VERSION` is a hard error.
+
+| Version | Change |
+|---------|--------|
+| 1 | Initial nodes/edges/FTS/pending/aliases |
+| 2 | `nodes.scope` + `idx_nodes_scope` (MainBrain / SubBrain) |
+
+## Workspace manifest (scopes)
+
+**File:** `.brain/workspace.json` (version 2 when multi-brain is used)
+
+| Field | Notes |
+|-------|--------|
+| `mode` | `single` (default) or `multi` |
+| `main_id` | Usually `main` |
+| `scopes[]` | SubBrains: `{ id, roots[], aliases[], source }` |
+
+See `rustbrain scopes --help` and root `ROADMAP.md` § MainBrain + SubBrain.
 
 ## Node ID scheme
 

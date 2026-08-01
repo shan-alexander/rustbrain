@@ -78,9 +78,14 @@ impl Database {
 
         let created_at = existing_created.unwrap_or(node.created_at);
 
+        let scope = if node.scope.trim().is_empty() {
+            crate::scopes::MAIN_SCOPE
+        } else {
+            node.scope.as_str()
+        };
         conn.execute(
-            "INSERT INTO nodes (id, node_type, title, file_path, symbol_hash, summary, content_hash, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO nodes (id, node_type, title, file_path, symbol_hash, summary, content_hash, scope, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                 node_type = excluded.node_type,
                 title = excluded.title,
@@ -88,6 +93,7 @@ impl Database {
                 symbol_hash = excluded.symbol_hash,
                 summary = excluded.summary,
                 content_hash = excluded.content_hash,
+                scope = excluded.scope,
                 updated_at = excluded.updated_at",
             params![
                 node.id,
@@ -97,11 +103,70 @@ impl Database {
                 node.symbol_hash.map(|h| h as i64),
                 node.summary,
                 node.content_hash,
+                scope,
                 created_at,
                 node.updated_at,
             ],
         )?;
         Ok(())
+    }
+
+    /// Update scope column and densify `scope:…` into FTS tags (content body unchanged).
+    pub fn set_node_scope(&self, node_id: &str, scope: &str) -> Result<()> {
+        let scope = if scope.trim().is_empty() {
+            crate::scopes::MAIN_SCOPE
+        } else {
+            scope
+        };
+        self.conn.execute(
+            "UPDATE nodes SET scope = ?1 WHERE id = ?2",
+            params![scope, node_id],
+        )?;
+        // Refresh FTS tags densify without full reindex of body.
+        let title: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT title FROM nodes WHERE id = ?1",
+                [node_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let content = self.get_fts_content(node_id)?.unwrap_or_default();
+        let mut tags = self.get_tags_for_node(node_id)?;
+        tags.retain(|t| !t.starts_with("scope:"));
+        tags.push(format!("scope:{scope}"));
+        let tags_str = tags.join(" ");
+        if let Some(title) = title {
+            self.index_fts(node_id, &title, &content, &tags_str)?;
+        }
+        // Also replace node_tags so tag queries see scope densify
+        self.replace_node_tags(node_id, &tags)?;
+        Ok(())
+    }
+
+    fn get_tags_for_node(&self, node_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tag FROM node_tags WHERE node_id = ?1")?;
+        let rows = stmt.query_map([node_id], |row| row.get(0))?;
+        let mut v = Vec::new();
+        for r in rows {
+            v.push(r?);
+        }
+        Ok(v)
+    }
+
+    /// Read scope for a node (defaults to main if missing).
+    pub fn get_node_scope(&self, node_id: &str) -> Result<Option<String>> {
+        let v: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT scope FROM nodes WHERE id = ?1",
+                [node_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(v)
     }
 
     /// Fetch content_hash for a node if present.
@@ -327,7 +392,7 @@ impl Database {
         let escaped = escape_fts5_query(query)?;
         let mut stmt = self.conn.prepare(
             "SELECT n.id, n.node_type, n.title, n.file_path, n.symbol_hash, n.summary,
-                    n.content_hash, n.created_at, n.updated_at
+                    n.content_hash, n.scope, n.created_at, n.updated_at
              FROM node_fts f
              JOIN nodes n ON n.id = f.node_id
              WHERE node_fts MATCH ?1
@@ -335,22 +400,7 @@ impl Database {
              LIMIT 50",
         )?;
 
-        let rows = stmt.query_map(params![escaped], |row| {
-            let type_str: String = row.get(1)?;
-            let node_type = NodeType::parse(&type_str).unwrap_or(NodeType::Concept);
-            let symbol_hash_raw: Option<i64> = row.get(4)?;
-            Ok(Node {
-                id: row.get(0)?,
-                node_type,
-                title: row.get(2)?,
-                file_path: row.get(3)?,
-                symbol_hash: symbol_hash_raw.map(|h| h as u64),
-                summary: row.get(5)?,
-                content_hash: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![escaped], Self::map_node_row)?;
 
         let mut results = Vec::new();
         for r in rows {
@@ -375,7 +425,7 @@ impl Database {
     /// Fetch a single node by id, if present.
     pub fn get_node(&self, id: &str) -> Result<Option<Node>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, node_type, title, file_path, symbol_hash, summary, content_hash, created_at, updated_at
+            "SELECT id, node_type, title, file_path, symbol_hash, summary, content_hash, scope, created_at, updated_at
              FROM nodes WHERE id = ?1",
         )?;
         let node = stmt
@@ -384,10 +434,14 @@ impl Database {
         Ok(node)
     }
 
-    fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
+    pub(crate) fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
         let type_str: String = row.get(1)?;
         let node_type = NodeType::parse(&type_str).unwrap_or(NodeType::Concept);
         let symbol_hash_raw: Option<i64> = row.get(4)?;
+        let scope: String = row
+            .get::<_, Option<String>>(7)?
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| crate::scopes::MAIN_SCOPE.to_string());
         Ok(Node {
             id: row.get(0)?,
             node_type,
@@ -396,8 +450,9 @@ impl Database {
             symbol_hash: symbol_hash_raw.map(|h| h as u64),
             summary: row.get(5)?,
             content_hash: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
+            scope,
+            created_at: row.get(8)?,
+            updated_at: row.get(9)?,
         })
     }
 
@@ -491,7 +546,7 @@ impl Database {
     /// All nodes ordered by id ascending (export / CSR compile order).
     pub fn get_all_nodes(&self) -> Result<Vec<Node>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, node_type, title, file_path, symbol_hash, summary, content_hash, created_at, updated_at
+            "SELECT id, node_type, title, file_path, symbol_hash, summary, content_hash, scope, created_at, updated_at
              FROM nodes ORDER BY id ASC",
         )?;
         let rows = stmt.query_map([], Self::map_node_row)?;
@@ -628,6 +683,7 @@ mod tests {
             symbol_hash: None,
             summary: Some("summary".into()),
             content_hash: Some("abc".into()),
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: 100,
             updated_at: 100,
         }

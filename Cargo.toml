@@ -3,11 +3,11 @@ resolver = "2"
 members = [
     "crates/rustbrain-core",
     "crates/rustbrain-cli",
-    "crates/json-stack-bench",
+    "crates/bench",
 ]
 
 [workspace.package]
-version = "0.3.20"
+version = "0.3.21"
 edition = "2021"
 rust-version = "1.80"
 authors = ["rustbrain contributors"]
@@ -20,7 +20,7 @@ keywords = ["knowledge-graph", "markdown", "obsidian", "sqlite", "cli"]
 categories = ["command-line-utilities", "text-processing", "database"]
 
 [workspace.dependencies]
-rustbrain-core = { version = "0.3.20", path = "crates/rustbrain-core" }
+rustbrain-core = { version = "0.3.21", path = "crates/rustbrain-core" }
 
 rusqlite = { version = "0.32", features = ["bundled"] }
 memmap2 = "0.9"

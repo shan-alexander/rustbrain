@@ -24,6 +24,21 @@ pub struct RankedHit {
     pub reasons: Vec<String>,
 }
 
+/// How much of MainBrain to include when [`QueryOptions::scope`] is set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScopeMainInclude {
+    /// Only the selected SubBrain (no MainBrain rows).
+    Strict,
+    /// Selected SubBrain + stable hub node ids (`readme`, `changelog`, `roadmap`, `backlog`).
+    ///
+    /// **Default** — avoids flooding scoped search with every root doc while still
+    /// orienting agents to project hubs.
+    #[default]
+    HubsOnly,
+    /// Selected SubBrain + every node owned by MainBrain (`main_scope`).
+    AllMain,
+}
+
 /// Options for [`Database::search_ranked`] / [`crate::Brain::query_ranked`].
 #[derive(Debug, Clone)]
 pub struct QueryOptions {
@@ -39,6 +54,12 @@ pub struct QueryOptions {
     pub exclude_types: Vec<NodeType>,
     /// Convenience: exclude [`NodeType::Symbol`] (typical for human CLI search).
     pub no_symbols: bool,
+    /// When set (multi-brain), filter by owner scope (see [`Self::scope_main`]).
+    pub scope: Option<String>,
+    /// MainBrain id used when `scope` is set (default `main`).
+    pub main_scope: String,
+    /// How much MainBrain content to mix into a scoped query (default hubs-only).
+    pub scope_main: ScopeMainInclude,
 }
 
 impl Default for QueryOptions {
@@ -58,6 +79,9 @@ impl Default for QueryOptions {
             include_types: Vec::new(),
             exclude_types: Vec::new(),
             no_symbols: false,
+            scope: None,
+            main_scope: crate::scopes::MAIN_SCOPE.to_string(),
+            scope_main: ScopeMainInclude::HubsOnly,
         }
     }
 }
@@ -69,6 +93,12 @@ impl QueryOptions {
             no_symbols: true,
             ..Self::default()
         }
+    }
+
+    /// Restrict to a SubBrain (default Main mix: hubs only).
+    pub fn with_scope(mut self, scope: impl Into<String>) -> Self {
+        self.scope = Some(scope.into());
+        self
     }
 
     fn allows(&self, ty: &NodeType) -> bool {
@@ -83,6 +113,47 @@ impl QueryOptions {
         }
         true
     }
+
+    /// Whether a node passes the multi-brain scope filter.
+    pub fn allows_scope(&self, node_scope: &str, node_id: &str) -> bool {
+        let Some(want) = self.scope.as_deref() else {
+            return true;
+        };
+        if node_scope == want {
+            return true;
+        }
+        match self.scope_main {
+            ScopeMainInclude::Strict => false,
+            ScopeMainInclude::HubsOnly => crate::hubs::is_hub_node_id(node_id),
+            ScopeMainInclude::AllMain => node_scope == self.main_scope,
+        }
+    }
+}
+
+fn map_ranked_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Node, f32)> {
+    let type_str: String = row.get(1)?;
+    let node_type = NodeType::parse(&type_str).unwrap_or(NodeType::Concept);
+    let symbol_hash_raw: Option<i64> = row.get(4)?;
+    let scope: String = row
+        .get::<_, Option<String>>(7)?
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| crate::scopes::MAIN_SCOPE.to_string());
+    let bm25: f64 = row.get(10)?;
+    Ok((
+        Node {
+            id: row.get(0)?,
+            node_type,
+            title: row.get(2)?,
+            file_path: row.get(3)?,
+            symbol_hash: symbol_hash_raw.map(|h| h as u64),
+            summary: row.get(5)?,
+            content_hash: row.get(6)?,
+            scope,
+            created_at: row.get(8)?,
+            updated_at: row.get(9)?,
+        },
+        bm25 as f32,
+    ))
 }
 
 impl Database {
@@ -103,42 +174,79 @@ impl Database {
         let prepared = prepare_search_query(query)?;
         let tokens = &prepared.tokens;
 
-        let mut stmt = self.conn.prepare(
-            "SELECT n.id, n.node_type, n.title, n.file_path, n.symbol_hash, n.summary,
-                    n.content_hash, n.created_at, n.updated_at,
+        // Oversample less when SQL already scope-filters; still 2× for type filters.
+        let sql_limit = (opts.limit as i64).saturating_mul(2).max(50);
+
+        let (sql, bind_scope): (String, Option<(String, ScopeMainInclude, String)>) =
+            if let Some(ref want) = opts.scope {
+                let clause = match opts.scope_main {
+                    ScopeMainInclude::Strict => {
+                        " AND n.scope = ?2 ".to_string()
+                    }
+                    ScopeMainInclude::HubsOnly => {
+                        " AND (n.scope = ?2 OR n.id IN ('readme','changelog','roadmap','backlog')) "
+                            .to_string()
+                    }
+                    ScopeMainInclude::AllMain => {
+                        " AND (n.scope = ?2 OR n.scope = ?3) ".to_string()
+                    }
+                };
+                (
+                    format!(
+                        "SELECT n.id, n.node_type, n.title, n.file_path, n.symbol_hash, n.summary,
+                    n.content_hash, n.scope, n.created_at, n.updated_at,
+                    bm25(node_fts) AS bm25_score
+             FROM node_fts f
+             JOIN nodes n ON n.id = f.node_id
+             WHERE node_fts MATCH ?1
+             {clause}
+             ORDER BY bm25_score
+             LIMIT ?{lim}",
+                        lim = if matches!(opts.scope_main, ScopeMainInclude::AllMain) {
+                            4
+                        } else {
+                            3
+                        }
+                    ),
+                    Some((want.clone(), opts.scope_main, opts.main_scope.clone())),
+                )
+            } else {
+                (
+                    "SELECT n.id, n.node_type, n.title, n.file_path, n.symbol_hash, n.summary,
+                    n.content_hash, n.scope, n.created_at, n.updated_at,
                     bm25(node_fts) AS bm25_score
              FROM node_fts f
              JOIN nodes n ON n.id = f.node_id
              WHERE node_fts MATCH ?1
              ORDER BY bm25_score
-             LIMIT ?2",
-        )?;
+             LIMIT ?2"
+                        .to_string(),
+                    None,
+                )
+            };
 
-        let rows = stmt.query_map(params![prepared.fts_match, opts.limit as i64 * 2], |row| {
-            let type_str: String = row.get(1)?;
-            let node_type = NodeType::parse(&type_str).unwrap_or(NodeType::Concept);
-            let symbol_hash_raw: Option<i64> = row.get(4)?;
-            let bm25: f64 = row.get(9)?;
-            Ok((
-                Node {
-                    id: row.get(0)?,
-                    node_type,
-                    title: row.get(2)?,
-                    file_path: row.get(3)?,
-                    symbol_hash: symbol_hash_raw.map(|h| h as u64),
-                    summary: row.get(5)?,
-                    content_hash: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                },
-                bm25 as f32,
-            ))
-        })?;
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = match &bind_scope {
+            None => stmt
+                .query_map(params![prepared.fts_match, sql_limit], map_ranked_row)?
+                .collect::<std::result::Result<Vec<_>, _>>()?,
+            Some((want, ScopeMainInclude::AllMain, main)) => stmt
+                .query_map(
+                    params![prepared.fts_match, want.as_str(), main.as_str(), sql_limit],
+                    map_ranked_row,
+                )?
+                .collect::<std::result::Result<Vec<_>, _>>()?,
+            Some((want, _, _)) => stmt
+                .query_map(params![prepared.fts_match, want.as_str(), sql_limit], map_ranked_row)?
+                .collect::<std::result::Result<Vec<_>, _>>()?,
+        };
 
         let mut hits: Vec<RankedHit> = Vec::new();
-        for r in rows {
-            let (node, bm25) = r?;
+        for (node, bm25) in rows {
             if !opts.allows(&node.node_type) {
+                continue;
+            }
+            if !opts.allows_scope(&node.scope, &node.id) {
                 continue;
             }
             // bm25() in SQLite FTS5: more relevant → more negative. Invert.
@@ -245,7 +353,9 @@ impl Database {
         // Also pull pure tag/alias matches that FTS may have missed (short queries).
         self.augment_with_tag_alias_hits(tokens, &mut hits, opts)?;
 
-        hits.retain(|h| opts.allows(&h.node.node_type));
+        hits.retain(|h| {
+            opts.allows(&h.node.node_type) && opts.allows_scope(&h.node.scope, &h.node.id)
+        });
 
         hits.sort_by(|a, b| {
             b.score
@@ -297,31 +407,19 @@ impl Database {
             // Tag exact
             let mut stmt = self.conn.prepare(
                 "SELECT n.id, n.node_type, n.title, n.file_path, n.symbol_hash, n.summary,
-                        n.content_hash, n.created_at, n.updated_at
+                        n.content_hash, n.scope, n.created_at, n.updated_at
                  FROM node_tags t
                  JOIN nodes n ON n.id = t.node_id
                  WHERE lower(t.tag) = ?1
                  LIMIT 20",
             )?;
-            let rows = stmt.query_map([t.as_str()], |row| {
-                let type_str: String = row.get(1)?;
-                let node_type = NodeType::parse(&type_str).unwrap_or(NodeType::Concept);
-                let symbol_hash_raw: Option<i64> = row.get(4)?;
-                Ok(Node {
-                    id: row.get(0)?,
-                    node_type,
-                    title: row.get(2)?,
-                    file_path: row.get(3)?,
-                    symbol_hash: symbol_hash_raw.map(|h| h as u64),
-                    summary: row.get(5)?,
-                    content_hash: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                })
-            })?;
+            let rows = stmt.query_map([t.as_str()], Database::map_node_row)?;
             for r in rows {
                 let node = r?;
-                if existing.contains(&node.id) || !opts.allows(&node.node_type) {
+                if existing.contains(&node.id)
+                    || !opts.allows(&node.node_type)
+                    || !opts.allows_scope(&node.scope, &node.id)
+                {
                     continue;
                 }
                 hits.push(RankedHit {
@@ -334,31 +432,18 @@ impl Database {
             // Alias exact
             let mut stmt = self.conn.prepare(
                 "SELECT n.id, n.node_type, n.title, n.file_path, n.symbol_hash, n.summary,
-                        n.content_hash, n.created_at, n.updated_at
+                        n.content_hash, n.scope, n.created_at, n.updated_at
                  FROM node_aliases a
                  JOIN nodes n ON n.id = a.node_id
                  WHERE a.alias = ?1
                  LIMIT 20",
             )?;
-            let rows = stmt.query_map([t.as_str()], |row| {
-                let type_str: String = row.get(1)?;
-                let node_type = NodeType::parse(&type_str).unwrap_or(NodeType::Concept);
-                let symbol_hash_raw: Option<i64> = row.get(4)?;
-                Ok(Node {
-                    id: row.get(0)?,
-                    node_type,
-                    title: row.get(2)?,
-                    file_path: row.get(3)?,
-                    symbol_hash: symbol_hash_raw.map(|h| h as u64),
-                    summary: row.get(5)?,
-                    content_hash: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                })
-            })?;
+            let rows = stmt.query_map([t.as_str()], Database::map_node_row)?;
             for r in rows {
                 let node = r?;
-                if hits.iter().any(|h| h.node.id == node.id) || !opts.allows(&node.node_type)
+                if hits.iter().any(|h| h.node.id == node.id)
+                    || !opts.allows(&node.node_type)
+                    || !opts.allows_scope(&node.scope, &node.id)
                 {
                     continue;
                 }
@@ -437,6 +522,7 @@ mod tests {
             symbol_hash: None,
             summary: Some("mentions raft in body".into()),
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: 1,
             updated_at: 1,
         };
@@ -448,6 +534,7 @@ mod tests {
             symbol_hash: None,
             summary: Some("tagged note".into()),
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: 1,
             updated_at: 1,
         };

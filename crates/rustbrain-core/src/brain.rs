@@ -202,6 +202,16 @@ impl Brain {
         BrainExporter::export_bundle(&self.db, out, decouple_ast)
     }
 
+    /// Export optionally limited to one SubBrain scope (plus hubs).
+    pub fn export_scope(
+        &self,
+        out: impl AsRef<Path>,
+        decouple_ast: bool,
+        scope: Option<&str>,
+    ) -> Result<()> {
+        BrainExporter::export_bundle_filtered(&self.db, out, decouple_ast, scope)
+    }
+
     /// Import a `.brainbundle`, upserting nodes and edges.
     ///
     /// Recompiles `graph.mmap` when the `mmap` feature is enabled.

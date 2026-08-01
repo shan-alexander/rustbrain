@@ -1,10 +1,22 @@
 # rustbrain-core
 
-**Core engine** for [rustbrain](https://github.com/shan-alexander/rustbrain): a project-scoped knowledge graph for software repositories — humans and AI agents.
+**Library engine** for [rustbrain](https://github.com/shan-alexander/rustbrain) — embed a project-scoped Markdown knowledge graph in tools and AI agent runtimes.
 
 [![crates.io](https://img.shields.io/crates/v/rustbrain-core.svg)](https://crates.io/crates/rustbrain-core)
 [![docs.rs](https://docs.rs/rustbrain-core/badge.svg)](https://docs.rs/rustbrain-core)
-[![License](https://img.shields.io/crates/l/rustbrain-core.svg)](https://github.com/shan-alexander/rustbrain)
+[![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/rustbrain-core.svg)](https://github.com/shan-alexander/rustbrain)
+
+```toml
+[dependencies]
+rustbrain-core = "0.3"
+```
+
+| Package | Role |
+|---|---|
+| **[`rustbrain`](https://crates.io/crates/rustbrain)** | **CLI (primary product)** — `cargo install rustbrain`; full command guide on that crate |
+| **`rustbrain-core`** (this crate) | **Library only** — same algorithms, no binary |
+
+> Most people should install the **CLI**. Depend on **rustbrain-core** when you are building an app, agent harness, or IDE integration that needs `Brain` in-process. The split is intentional: CLI users get a polished binary; embedders get a clean library dependency.
 
 Index Markdown notes and Rust symbols into **SQLite (FTS5 + edges)**, bake an optional **CSR `graph.mmap`**, then serve ranked search and **graph-aware context packs** under a token budget. No cloud, no invented ADRs — algorithmic and Git-friendly.
 
@@ -26,8 +38,8 @@ Index Markdown notes and Rust symbols into **SQLite (FTS5 + edges)**, bake an op
     query_ranked · context_for_prompt · graph · doctor
 ```
 
-**CLI:** [`rustbrain`](https://crates.io/crates/rustbrain) (same engine, agent-friendly commands)  
-**Repo / architecture:** [github.com/shan-alexander/rustbrain](https://github.com/shan-alexander/rustbrain)
+**CLI command guide:** [crates.io/crates/rustbrain](https://crates.io/crates/rustbrain) · [docs/CLI.md](https://github.com/shan-alexander/rustbrain/blob/main/docs/CLI.md)  
+**Repo:** [github.com/shan-alexander/rustbrain](https://github.com/shan-alexander/rustbrain)
 
 ---
 
@@ -383,9 +395,21 @@ Status checkboxes and changelog headings are **not** separate SQL task tables �
 
 ---
 
-## CLI companion
+## Performance
 
-Install the same engine as a binary:
+Engine benches live in the monorepo package **`bench`** (not published):
+
+```bash
+cargo bench -p bench --bench rustbrain_performance
+```
+
+At ~500 synthetic notes (one Linux release run; re-run locally): CSR k-hop neighborhood is **~nanoseconds** vs **~milliseconds** re-parsing all WikiLinks each query; FTS ranked search beats walk-all-Markdown as *N* grows. Full tables: [docs/BENCHMARKS.md](https://github.com/shan-alexander/rustbrain/blob/main/docs/BENCHMARKS.md).
+
+---
+
+## CLI companion (recommended for repo workflows)
+
+If you are not embedding, install the binary instead of wiring the library by hand:
 
 ```bash
 cargo install rustbrain --locked
@@ -393,7 +417,7 @@ rustbrain setup --yes
 rustbrain context "topic"
 ```
 
-See **[rustbrain](https://crates.io/crates/rustbrain)** for the full command reference.
+The published **[rustbrain](https://crates.io/crates/rustbrain)** README is a full **command guide** (recommended sequences, every subcommand, plan statuses, link apply tiers). This crate stays focused on the Rust API.
 
 ---
 

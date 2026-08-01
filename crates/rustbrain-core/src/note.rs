@@ -22,6 +22,9 @@ pub struct NoteNewOptions {
     pub dir: Option<PathBuf>,
     /// If true, overwrite an existing file at the target path.
     pub force: bool,
+    /// Optional SubBrain scope: places the note under that scope's first root
+    /// `docs/...` when `dir` is unset, and sets frontmatter `scope:` for multi-brain.
+    pub scope: Option<String>,
 }
 
 /// Result of creating a note on disk.
@@ -83,10 +86,31 @@ pub fn create_note(workspace: &Path, opts: &NoteNewOptions) -> Result<NoteCreate
         return Err(BrainError::other("note title must not be empty"));
     }
 
-    let dir_rel = opts
-        .dir
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(default_dir_for_type(&opts.node_type)));
+    let scope_id = opts
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != crate::scopes::MAIN_SCOPE);
+
+    let dir_rel = if let Some(d) = &opts.dir {
+        d.clone()
+    } else if let Some(sid) = scope_id {
+        // Prefer first root of named SubBrain + type subdir.
+        let m = crate::scopes::load_manifest(workspace)?;
+        if let Some(sc) = m.find_scope(sid) {
+            let root = sc.roots.first().map(|r| r.as_str()).unwrap_or("");
+            PathBuf::from(root).join(default_dir_for_type(&opts.node_type))
+        } else {
+            // Imported-style default tree
+            PathBuf::from(format!(
+                "docs/subbrains/{}/{}",
+                crate::scopes::sanitize_scope_id(sid)?,
+                default_dir_for_type(&opts.node_type).trim_start_matches("docs/")
+            ))
+        }
+    } else {
+        PathBuf::from(default_dir_for_type(&opts.node_type))
+    };
     let abs_dir = workspace.join(&dir_rel);
     std::fs::create_dir_all(&abs_dir)?;
 
@@ -138,12 +162,20 @@ pub fn create_note(workspace: &Path, opts: &NoteNewOptions) -> Result<NoteCreate
     } else {
         ""
     };
+    let scope_yaml = opts
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("scope: {s}\n"))
+        .unwrap_or_default();
 
     let content = format!(
         "---\n\
          tags: {tags_yaml}\n\
          node_type: {}\n\
          {status_yaml}\
+         {scope_yaml}\
          {aliases_yaml}\
          ---\n\
          # {}\n\
@@ -317,6 +349,7 @@ mod tests {
                 aliases: vec![],
                 dir: None,
                 force: false,
+                scope: None,
             },
         )
         .unwrap();
@@ -343,6 +376,7 @@ mod tests {
                 aliases: vec![],
                 dir: None,
                 force: false,
+                scope: None,
             },
         )
         .unwrap();
@@ -366,6 +400,7 @@ mod tests {
                 aliases: vec![],
                 dir: None,
                 force: false,
+                scope: None,
             },
         )
         .unwrap();
@@ -394,6 +429,7 @@ mod tests {
                 aliases: vec![],
                 dir: None,
                 force: false,
+                scope: None,
             },
         )
         .unwrap();
@@ -416,6 +452,7 @@ mod tests {
             aliases: vec![],
             dir: None,
             force: false,
+            scope: None,
         };
         create_note(dir.path(), &opts).unwrap();
         assert!(create_note(dir.path(), &opts).is_err());

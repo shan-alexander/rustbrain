@@ -1,114 +1,248 @@
 # rustbrain
 
-**A lightweight, Rust-native second brain** for software repositories — for humans *and* AI agents.
+**A Rust-native second brain for software repositories** — Markdown knowledge graph + SQLite FTS5 + CSR mmap, for humans *and* AI coding agents.
 
-Write ordinary Markdown (Obsidian-compatible WikiLinks and frontmatter). `rustbrain` indexes notes and Rust code into a local SQLite knowledge graph, bakes a CSR graph cache, and serves **ranked search** plus **graph-aware agent context** under a token budget.
+[![crates.io](https://img.shields.io/crates/v/rustbrain.svg)](https://crates.io/crates/rustbrain)
+[![docs.rs](https://docs.rs/rustbrain-core/badge.svg)](https://docs.rs/rustbrain-core)
+[![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/rustbrain.svg)](https://github.com/shan-alexander/rustbrain)
 
-```text
-  docs/*.md  +  src/**/*.rs
-        │              │
-        ▼              ▼
-   WikiLinks      tree-sitter
-   frontmatter     BLAKE3 symbols
-        │              │
-        └──────┬───────┘
-               ▼
-        .brain/db.sqlite   ← source of truth (FTS5 + edges)
-               │
-               ▼
-        .brain/graph.mmap  ← CSR cache for neighborhood expansion
-               │
-               ▼
-     rustbrain query / context / agents
+```bash
+cargo install rustbrain --locked
+export PATH="$HOME/.cargo/bin:$PATH"
+cd your-project && rustbrain setup --yes
+rustbrain context "why did we choose this architecture?"
 ```
 
-> **v0.3.11:** rustdoc `[[WikiLinks]]` → symbol→note `doc_links`; analysis notes; scaffold-first notes.  
-> Neural embeddings, multi-brain `--scope`, and full two-way Obsidian write-back are **planned**, not claimed.
+| Package on crates.io | Role |
+|---|---|
+| **[`rustbrain`](https://crates.io/crates/rustbrain)** | **CLI (primary)** — install this; binary name `rustbrain` |
+| **[`rustbrain-core`](https://crates.io/crates/rustbrain-core)** | **Library** — same engine for embedders / agent runtimes |
+
+> **Primary path:** use the **CLI** in your repo (`setup` → `note` / `sync` → `context` / `query` / `graph`).  
+> **Library path:** engineers who want rustbrain *inside* a tool depend on **`rustbrain-core`** only — the CLI is a thin, agent-friendly front end over that crate. They are **separated intentionally** so app authors do not pull a binary package just to call `Brain::sync()`.
+
+Full published CLI guide (commands, sequences, flags): **[crates.io/crates/rustbrain](https://crates.io/crates/rustbrain)** · in-repo book: **[docs/CLI.md](docs/CLI.md)**.
+
+---
+
+## What is rustbrain?
+
+Write ordinary notes (`docs/**/*.md`, Obsidian-style WikiLinks + frontmatter). Index Rust with Tree-Sitter. Search with **FTS5**. Expand a **CSR graph**. Pack **agent context** under a token budget.
+
+All **offline**, **project-scoped**, **Git-friendly**. The engine is algorithmic — it does **not** invent ADRs, changelogs, or decision history.
+
+```text
+  docs/*.md   src/**/*.rs   CHANGELOG.md   Cargo.toml deps
+       │            │             │               │
+       ▼            ▼             ▼               ▼
+  WikiLinks    tree-sitter   hub:changelog   docs.rs notes
+  frontmatter   symbols
+       └────────────┬─────────────┴───────────────┘
+                    ▼
+           .brain/db.sqlite     ← disposable index (gitignore)
+                    │
+                    ▼
+           .brain/graph.mmap    ← CSR neighborhood cache
+                    │
+                    ▼
+     setup · note · sync · query · context · graph · links · doctor
+```
+
+**Analogy:** plain “dump docs into the prompt” is a pile of papers. rustbrain is a **catalog + map of the building** — find the right rooms, see who links to whom, then pack only what fits the token budget.
+
+### Four jobs
+
+| Job | Phrase | CLI |
+|---|---|---|
+| **Orient** | What does this repo already know? | `context`, `query`, `graph` |
+| **Capture** | Write a real note, not chat residue | `note new` → edit → `sync` |
+| **Connect** | Who links to whom? Fix pending links | `graph`, `links`, `links --apply` |
+| **Health** | Is the brain usable for agents? | `doctor`, `sync` |
+
+Markdown on disk is the **source of truth**. `.brain/` is a **rebuildable cache** (like `target/` for knowledge).
+
+---
+
+## Why rustbrain?
+
+| Benefit | What you get |
+|---|---|
+| **Agent-ready** | `setup --yes` writes `AGENTS.md`; agents use `context` / `query` every turn |
+| **Truth in Git** | Notes are plain Markdown; `.brain/` is disposable |
+| **Code ↔ docs** | `symbol:Foo` from notes; `[[docs/adr/…]]` in rustdoc → bidirectional edges |
+| **Graph-aware packs** | `context` = ranked seeds + hops under a token budget (Markdown or XML) |
+| **Rust ecosystem** | Root `CHANGELOG.md` hub; Cargo.toml → **docs.rs** reference notes on setup |
+| **HITL planning** | `plan` notes with densified status (`backlog` … `blocked`); optional ROADMAP/BACKLOG |
+| **No cloud** | Local SQLite + optional CSR mmap; no LLM inventiveness in the engine |
+| **Careful rewrites** | `links --apply` closes unique pending WikiLinks; AC discover is opt-in, dry-run default |
+
+### When to use it
+
+| Prefer **rustbrain** when… | Prefer something else when… |
+|---|---|
+| Structured notes (goals, ADRs, plans) must survive chat sessions | One-off grep in a throwaway folder |
+| Agents must **not invent** decision history | You want a SaaS “memory” product only |
+| You need **code↔doc graph** hops | Pure vector RAG over opaque blobs is enough |
+| Knowledge should be PR-reviewable in Git | Docs must live only outside the repo |
 
 ---
 
 ## Install
 
+### CLI (recommended for almost everyone)
+
 ```bash
-cargo install rustbrain --locked          # CLI
-# ensure cargo bin is on PATH:
-#   export PATH="$HOME/.cargo/bin:$PATH"
+cargo install rustbrain --locked
+# pin: cargo install rustbrain --version 0.3.21 --locked
+export PATH="$HOME/.cargo/bin:$PATH"
+rustbrain --version
 ```
 
+**Requirements:** Rust **1.80+**, a C toolchain (bundled SQLite + tree-sitter).  
+**License:** MIT OR Apache-2.0.
+
+### Library (embedders only)
+
 ```toml
-# Library / agents
 [dependencies]
 rustbrain-core = "0.3"
 ```
 
-**Build requirements:** C toolchain (bundled SQLite, tree-sitter). **MSRV:** 1.80.
+See **[rustbrain-core](https://crates.io/crates/rustbrain-core)** for API examples, feature flags, and bootstrap options.
 
 ---
 
 ## Quick start
 
-### Greenfield or mature repo
+### One-shot (greenfield or mature repo)
 
 ```bash
 cd your-project
-
-# Agents / one-shot (recommended) — also writes AGENTS.md
 rustbrain setup --yes
-
-# Optional: skip or customize the agent cookbook
-# rustbrain setup --yes --no-agents-md
-# rustbrain setup --yes --agents-template ./AGENTS.template.md
-
-# Or step-by-step:
-# rustbrain init && rustbrain bootstrap --yes --write && rustbrain sync && rustbrain doctor
-
-# Preferred note creation (agents + humans): type + title only → scaffold → edit file
-rustbrain note new --type adr --title "Use local SQLite"
-# → writes docs/adr/use-local-sqlite.md with Status/Context/Decision sections
-# → then edit that file; run sync after edits if you need a re-index
-
-rustbrain query "sqlite" --scores
-rustbrain context "why local sqlite"
-rustbrain links    # pending WikiLinks / symbol: refs
 ```
 
-**Preferred `note new` workflow:** pass `--type` and `--title`, **omit `--body` / `--note`** so
-rustbrain fills a **type-specific scaffold** (`adr`, `goal`, `analysis`, …). Then **edit the
-created file** (path is printed). Re-run `rustbrain sync` after substantial edits.  
-Using `--body`/`--note` is fine when the full text is already ready — it skips the scaffold.
+This creates `.brain/`, scaffolds `docs/`, writes **`AGENTS.md`** + **`docs/AGENTS.md`**, harvests README + Cargo.toml → docs.rs notes, runs **sync** + **doctor**.
 
-`setup` / `bootstrap` write root **`AGENTS.md`** (how agents should use rustbrain in this repo).
-Template order: `--agents-template` → `RUSTBRAIN_AGENTS_TEMPLATE` → `AGENTS.template.md` /
-`.rustbrain/AGENTS.template.md` → built-in default. Opt out: `--no-agents-md`.
+```bash
+# optional knobs
+rustbrain setup --yes --no-crate-docs
+rustbrain setup --yes --no-agents-md
+rustbrain setup --yes --force
+rustbrain setup --yes --agents-template ./AGENTS.template.md
+```
 
-Interactive humans can run `rustbrain bootstrap --write` **without** `--yes` to answer prompts about `.rustbrainignore`, `.gitignore` import, and `AGENTS.md`.
+### Capture → search → pack
 
-### Full CLI reference
+```bash
+# Preferred: type + title only → scaffold → edit printed path → sync
+rustbrain note new --type adr --title "Use local SQLite"
+# edit docs/adr/use-local-sqlite.md
 
-See **[docs/CLI.md](docs/CLI.md)** for every flag, ignore dialect, bootstrap outputs, and agent nuances.
+rustbrain note new --type plan --title "Q3 platform roadmap"
+rustbrain note new --type analysis --title "query path bench 2026-07-31"
+
+rustbrain sync
+
+rustbrain query "sqlite" --scores
+rustbrain query "status:in_progress" --type plan --scores
+rustbrain context "why local sqlite"
+rustbrain graph docs/adr/use-local-sqlite.md
+rustbrain doctor
+```
+
+### Everyday loop
+
+```text
+edit docs/code → sync → query | context | graph
+                 ├── links --auto          (soft edges)
+                 ├── links --apply --dry-run / --write
+                 └── watch --debounce-ms 300
+```
+
+---
+
+## Recommended sequences
+
+### Agent turn (HITL)
+
+```bash
+rustbrain context "task keywords"
+rustbrain query "related" --scores
+rustbrain graph docs/adr/relevant.md
+# … implement …
+rustbrain note new --type adr --title "Decision title"   # then edit file
+rustbrain sync
+rustbrain doctor
+```
+
+### Planning
+
+```bash
+rustbrain note new --type plan --title "Sprint board"
+rustbrain sync
+rustbrain query "status:in_progress" --type plan --scores
+rustbrain query "status:blocked" --type plan --scores
+rustbrain context "roadmap priorities"
+```
+
+### Link hygiene
+
+```bash
+rustbrain links
+rustbrain links --auto
+rustbrain links --apply --dry-run
+rustbrain links --apply --write
+rustbrain links --apply --discover --dry-run
+```
+
+### Portability
+
+```bash
+rustbrain export --out team.brainbundle --decouple-ast
+rustbrain import --input team.brainbundle -w /other/project
+rustbrain sync -w /other/project
+```
+
+More playbooks and every flag: **[docs/CLI.md](docs/CLI.md)** · published CLI README on **[crates.io/crates/rustbrain](https://crates.io/crates/rustbrain)**.
 
 ---
 
 ## CLI overview
 
 | Command | Purpose |
-|---------|---------|
+|---|---|
 | `setup` | One-shot init + bootstrap + sync + doctor |
-| `init` | Create `.brain/db.sqlite` |
-| `bootstrap` | Docs tree, `AGENTS.md`, `.rustbrainignore`, README harvest, AST module map |
+| `init` | Create `.brain/db.sqlite` only |
+| `bootstrap` | Docs tree, AGENTS, ignore, README/crate harvest, module map |
 | `sync` | Index Markdown / Canvas / Rust; bake `graph.mmap` |
-| `doctor` | Health: pending links, type ratios (`--strict`, `--json`) |
-| `note new` | Typed note — prefer `--type` + `--title` only (scaffold), then edit file |
-| `links` | Pending list; `--auto` soft edges; `--apply` pending normalize + optional `--discover` |
-| `query <q>` | Ranked FTS (`--no-symbols`, `--type goal,adr`, `--scores`) |
-| `graph [target]` | Neighborhood tree / stats (`--hops`, `--json`, `--no-auto`) |
-| `context …` | Agent context (positional or `-p`; note-first; `--with-symbols`) |
-| `watch` | Debounced re-index |
-| `export` / `import` | Portable `.brainbundle` |
+| `doctor` | Health (`--strict`, `--json`, `--orphans`; multi-brain scope checks) |
+| `note new` | Typed scaffold (`--type` + `--title`; optional `--scope`) |
+| `query` | Ranked FTS (`--scores`, `--type`, `--with-symbols`, `--scope`) |
+| `context` | Agent pack (`-m`, `-F markdown\|xml`, `--scope`) |
+| `graph` | Neighborhood tree / workspace stats |
+| `scopes` | MainBrain / SubBrain: **`list` (ids)**, enable, add, attach, import, absorb, reconcile |
+| `links` | Pending; `--auto`; `--apply` (+ optional `--discover`) |
+| `watch` | Debounced live re-index |
+| `export` / `import` | Portable `.brainbundle` (`export --scope ID` = SubBrain slice) |
+
+Most commands accept `-w /path`. `query` / `context` / `doctor` / `graph` walk parents for `.brain/` (git-style).
+
+### Discover SubBrain ids (before import / scoped query)
+
+```bash
+rustbrain scopes list                 # ids + roots + node counts (this workspace)
+rustbrain scopes list --json          # tools / agents
+rustbrain scopes list -w /other/path  # inspect another tree
+# New SubBrain id is chosen by you: directory name is the convention
+rustbrain scopes attach project-a --root project-a
+rustbrain scopes import --from ./project-b --as project-b --mount
+```
+
+Full command book: **[docs/CLI.md](docs/CLI.md)** · generated **AGENTS.md** after `setup` has agent-oriented tables.
 
 ---
 
-## Note format
+## Note format & types
 
 ```markdown
 ---
@@ -123,38 +257,37 @@ See [[log-compaction]] and [[docs/architecture]].
 Implemented by symbol:StorageEngine and symbol:demo::crate::StorageEngine::open.
 ```
 
-In **Rust** source, link back to notes from rustdoc (indexed on `sync` as `doc_links`):
-
 ```rust
 /// App shell. See [[docs/adr/0001-use-egui]] for the GUI choice.
 pub struct ParqApp { /* … */ }
 ```
 
 | `node_type` | Intent |
-|-------------|--------|
+|---|---|
 | `goal` | Goals, non-goals, SLAs |
-| `adr` | Architectural decisions (committed choices) |
+| `adr` | Architectural decisions (committed) |
 | `alternative` | Options considered |
-| `concept` | Timeless atomic notes (“what is X”) |
-| `analysis` | Dated investigation (compare options, benches, data, design digs); optional recs |
+| `concept` | Timeless “what is X” |
+| `analysis` | Dated investigation (benches, compares) |
+| `plan` | Roadmaps / backlogs / todos (status densified on sync) |
+| `changelog` | Ship history (prefer root `CHANGELOG.md`) |
 | `symbol` | Code entities (usually from AST) |
 | `reference` | External crates / APIs |
 | `edge_case` | Traps, bugs, platform quirks |
 
-```bash
-# Pre-decision investigation — scaffold first, then fill Findings / Artifacts (e.g. criterion)
-rustbrain note new --type analysis --title "query path bench 2026-07-31"
-# edit docs/analysis/query-path-bench-2026-07-31.md, then:
-rustbrain sync
-```
+**Root hubs when files exist:** `README.md` → `readme` (goal); `CHANGELOG.md` → `changelog`; `ROADMAP.md` / `BACKLOG.md` → plan hubs.
 
-- **WikiLinks:** `[[Note]]`, `[[Note#H]]`, `[[Note\|Alias]]` (skipped inside code fences)  
-- **Code anchors:** `symbol:Name` / `symbol:crate::mod::Name` → edges `anchors`  
-- **IDs:** path slugs (`docs/concepts/raft`); root **README.md** → hub id `readme` (type `goal` by default)
+**Plan status tokens (after sync):** `status:backlog`, `status:in_progress`, `status:qa`, `status:done`, `status:cancelled`, `status:blocked` (`undone` is a legacy alias for blocked).
+
+- **WikiLinks:** `[[Note]]`, `[[Note#H]]`, `[[Note\|Alias]]` (skipped in fences)  
+- **Code anchors:** `symbol:Name` → `anchors`  
+- **Rustdoc:** `[[docs/…]]` → `doc_links`
 
 ---
 
-## Library API
+## Library API (embedders)
+
+Use **`rustbrain-core`** when you are building a tool, agent runtime, or IDE integration — not when you only need the CLI in a project.
 
 ```rust
 use rustbrain_core::{
@@ -174,7 +307,7 @@ fn main() -> Result<()> {
         &NoteNewOptions {
             node_type: NodeType::Concept,
             title: "Example".into(),
-            note: Some("Body from an agent.".into()),
+            note: None, // type-specific scaffold when None
             tags: vec![],
             aliases: vec![],
             dir: None,
@@ -189,38 +322,35 @@ fn main() -> Result<()> {
         &ContextOptions {
             max_tokens: 1024,
             hop_depth: 1,
-            no_symbols: true,       // note-first seeds (default in 0.3)
-            hop_to_symbols: true,   // still allow ADR → code neighbors
+            no_symbols: true,
+            hop_to_symbols: true,
             ..ContextOptions::default()
         },
     )?;
     println!("{}", run_doctor(ws)?.to_text());
-    println!("{}", ctx.to_xml());
+    println!("{}", ctx.to_markdown());
     let _ = hits;
     Ok(())
 }
 ```
 
-### Published crates
+AST and Obsidian parsers live **inside** `rustbrain-core` (`ast`, `obsidian` features), not as separate crates.
 
-| Package | Role |
-|---------|------|
-| **`rustbrain-core`** | Library (apps / agents) |
-| **`rustbrain`** | CLI binary |
-
-AST and Obsidian parsers are **modules inside** `rustbrain-core` (`ast`, `obsidian` features), not separate crates.
+More: [crates.io/crates/rustbrain-core](https://crates.io/crates/rustbrain-core) · [docs.rs/rustbrain-core](https://docs.rs/rustbrain-core).
 
 ---
 
 ## On-disk layout
 
 | Path | Purpose |
-|------|---------|
+|---|---|
 | `docs/**/*.md` | Human source of truth |
-| `.rustbrainignore` | Extra index skips (optional) |
+| `CHANGELOG.md` / `ROADMAP.md` / `BACKLOG.md` | Optional hubs |
+| `.rustbrainignore` | Extra index skips |
 | `.brain/db.sqlite` | Derived SQLite + FTS5 |
-| `.brain/graph.mmap` | CSR adjacency + id table |
-| `.brain/workspace.json` | Marker |
+| `.brain/graph.mmap` | CSR adjacency cache |
+| `.brain/link_lexicon.json` | Optional AC lexicon |
+| `AGENTS.md`, `docs/AGENTS.md` | Agent cookbooks |
 
 Formats: [docs/SCHEMA.md](docs/SCHEMA.md), [docs/MMAP_FORMAT.md](docs/MMAP_FORMAT.md).  
 Ignore dialect + CLI details: [docs/CLI.md](docs/CLI.md).
@@ -230,27 +360,52 @@ Ignore dialect + CLI details: [docs/CLI.md](docs/CLI.md).
 ## Feature flags (`rustbrain-core`)
 
 | Feature | Default | Description |
-|---------|---------|-------------|
+|---|---|---|
 | `ast` | ✓ | Tree-sitter Rust indexing |
 | `obsidian` | ✓ | WikiLinks / frontmatter / Canvas |
 | `mmap` | ✓ | CSR `graph.mmap` |
 | `watch` | | Debounced watcher |
-| `jshift` | | In-place JSON helpers |
+| `jshift` | | Sparse JSON path helpers (optional) |
 | `full` | | All of the above |
+
+JSON policy: [docs/JSON_STACK.md](docs/JSON_STACK.md).
+
+---
+
+## Performance
+
+Criterion package: [`crates/bench`](crates/bench) (`publish = false`).
+
+```bash
+cargo bench -p bench --bench rustbrain_performance   # engine vs baselines
+cargo bench -p bench --bench serde_vs_jshift         # JSON stack (see docs/JSON_STACK.md)
+```
+
+Full tables + fairness: **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)**.
+
+Headline (release, ~500 synthetic notes, one Linux machine, Criterion `--quick` — re-run locally):
+
+| Workload | rustbrain | Alternative | ~Ratio |
+|---|---|---|---|
+| Search (`query_ranked` vs walk `.md`) | ~3.5 ms | ~7.6 ms | **~2.2×** |
+| Graph hop (CSR vs re-parse WikiLinks) | ~156 ns | ~8.9 ms | **~50 000×** |
+| Context vs grep-rank concat | ~5.7 ms | ~8.1 ms | **~1.4×** + graph/type packing |
+
+Baselines model “no FTS / no CSR / dump docs into the prompt” — not peer SaaS products. Cheaper dumps exist; they are unranked and agent-hostile.
 
 ---
 
 ## What v0.3.x claims / does not
 
-**Does:** local Markdown second brain, bootstrap for mature repos, doctor, agent `note new`, ranked FTS with type filters, graph-aware context (including note→symbol hops), portable bundles. First-class types **`changelog`** (root `CHANGELOG.md`) and **`plan`** (roadmaps/backlogs/todos under `docs/plans/`). Bootstrap injects **`docs/AGENTS.md`** so agents use rustbrain every turn.
+**Does:** local Markdown second brain; bootstrap for mature repos; doctor; agent `note new`; ranked FTS with type filters; graph-aware context (including note→symbol hops); first-class **`changelog`** + **`plan`**; docs.rs harvest; portable bundles; careful `links --apply`.
 
-**Does not (yet):** neural embeddings, explicit AVX-512 kernels, full Obsidian write-back, SubBrain `--scope`.
+**Does not (yet):** neural embeddings; explicit AVX-512 kernels; full two-way Obsidian write-back; multi-brain `--scope` SubBrain product.
 
 ---
 
 ## Testimonials
 
-Interestingly, AI Agents can give their testimonial of their experience using rustbrain. Below is a testimonial from Gemini 3.6 Flash Medium:
+Interestingly, AI agents can give their testimonial of their experience using rustbrain. Below is a testimonial from Gemini 3.6 Flash Medium:
 
 ```
 Prompt: does rustbrain offer a helpful documentation and organization strategy for you? can you use the CLI interface smoothly without friction? does it enhance how you might work with this repo?
@@ -296,7 +451,19 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-Maintainers: [docs/PUBLISHING.md](docs/PUBLISHING.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
+| Doc | Path |
+|---|---|
+| CLI book | [docs/CLI.md](docs/CLI.md) |
+| Performance | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) |
+| Schema | [docs/SCHEMA.md](docs/SCHEMA.md) |
+| Publish | [docs/PUBLISHING.md](docs/PUBLISHING.md) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+
+Published crate READMEs (what crates.io shows):
+
+- CLI: [crates/rustbrain-cli/README.md](crates/rustbrain-cli/README.md) → package **`rustbrain`**
+- Library: [crates/rustbrain-core/README.md](crates/rustbrain-core/README.md) → package **`rustbrain-core`**
 
 ---
 

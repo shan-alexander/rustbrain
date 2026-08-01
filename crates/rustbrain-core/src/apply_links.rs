@@ -2008,6 +2008,7 @@ mod tests {
             symbol_hash: None,
             summary: None,
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: now,
             updated_at: now,
         };
@@ -2019,6 +2020,7 @@ mod tests {
             symbol_hash: None,
             summary: None,
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: now,
             updated_at: now,
         };
@@ -2139,6 +2141,7 @@ mod tests {
             symbol_hash: None,
             summary: None,
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: now,
             updated_at: now,
         })
@@ -2151,6 +2154,7 @@ mod tests {
             symbol_hash: None,
             summary: None,
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: now,
             updated_at: now,
         })
@@ -2344,6 +2348,7 @@ mod tests {
             symbol_hash: None,
             summary: None,
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: now,
             updated_at: now,
         })

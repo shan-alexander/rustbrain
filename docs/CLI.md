@@ -1,15 +1,71 @@
-# rustbrain CLI reference (v0.3.19)
+# rustbrain CLI reference (v0.3.x)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.19 --locked
+# or pin: cargo install rustbrain --version 0.3.21 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
 All commands accept a workspace path (default `.`). Prefer `-w /path` when the CWD is not the project root.
 `query` / `context` / `doctor` / `graph` **walk parent directories** for `.brain/db.sqlite` (git-style).
+
+---
+
+## MainBrain / SubBrain scopes (opt-in multi-crate)
+
+**Default is single-brain** (everything is MainBrain `main`). Multi-crate repos may stay single or enable multi-brain.
+
+### Discovering SubBrain ids
+
+Agents/humans must know the **id** before `import --as`, `query --scope`, or `export --scope`.
+
+| Goal | Command |
+|------|---------|
+| List ids **here** | `rustbrain scopes list` |
+| JSON | `rustbrain scopes list --json` → `manifest.scopes[].id` |
+| List ids **elsewhere** | `rustbrain scopes list -w /path/to/other` |
+| After Cargo discover | `scopes enable --cargo` then `scopes list` |
+| Brand-new folder / foreign mono | **Choose** id (convention = directory name), then `attach ID --root DIR` or `import --from DIR --as ID` |
+
+```bash
+rustbrain scopes list
+rustbrain scopes enable --cargo          # multi + Cargo workspace members as SubBrains
+rustbrain scopes enable --empty          # multi, add SubBrains yourself
+rustbrain scopes add myapp --root apps/myapp
+rustbrain scopes attach legacy --root project-a   # umbrella: existing dir, no copy
+rustbrain scopes remove myapp --absorb   # reassign nodes → main, drop SubBrain
+rustbrain scopes absorb myapp
+rustbrain scopes absorb all              # all SubBrains → main, mode=single
+rustbrain scopes reconcile               # fix DB drift after layout changes
+rustbrain scopes disable --absorb-all
+
+# Share without merge (SubBrain stays separate) vs merge into MainBrain
+rustbrain scopes import --from ../other --as other-lib          # copy under docs/subbrains/
+rustbrain scopes import --from ./project-a --as alpha --mount   # path under umbrella
+rustbrain scopes import --from ../other --into main             # merge copy into MainBrain
+rustbrain export --out share.brainbundle --scope other-lib      # portable SubBrain slice
+
+# Filter retrieval (default: SubBrain + hub nodes only)
+rustbrain query "topic" --scope rustbrain-cli
+rustbrain query "topic" --scope rustbrain-core --scope-strict
+rustbrain query "topic" --scope rustbrain-core --scope-with-main
+rustbrain context "task" --scope rustbrain-core
+rustbrain note new --type adr --title "Crate decision" --scope rustbrain-cli
+```
+
+| Concept | Behavior |
+|---------|----------|
+| **single** | No `--scope` needed; all nodes `scope=main` |
+| **multi** | Flat sibling SubBrains; longest path root wins |
+| **`--scope`** | SubBrain + **hubs only** (`readme`/`changelog`/`roadmap`/`backlog`) by default |
+| **`--scope-strict`** | SubBrain only |
+| **`--scope-with-main`** | SubBrain + all MainBrain-owned nodes |
+| **mount / attach** | Former mono MainBrains become SubBrains under a new umbrella MainBrain |
+| **One graph** | Cross-scope WikiLinks/symbols still one CSR/SQLite graph |
+
+Design: root `ROADMAP.md` § MainBrain + SubBrain · schema v2 `nodes.scope`.
 
 ---
 

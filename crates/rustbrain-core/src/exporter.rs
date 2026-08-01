@@ -50,7 +50,27 @@ impl BrainExporter {
         output_path: P,
         decouple_ast: bool,
     ) -> Result<()> {
+        Self::export_bundle_filtered(db, output_path, decouple_ast, None)
+    }
+
+    /// Export, optionally limited to one owner scope (SubBrain share without merge).
+    ///
+    /// Hub nodes (`readme`, `changelog`, `roadmap`, `backlog`) are included when
+    /// exporting a SubBrain so the bundle still orients. Edges kept only if both
+    /// endpoints remain.
+    pub fn export_bundle_filtered<P: AsRef<Path>>(
+        db: &Database,
+        output_path: P,
+        decouple_ast: bool,
+        scope: Option<&str>,
+    ) -> Result<()> {
         let mut nodes = db.get_all_nodes()?;
+        if let Some(sc) = scope {
+            nodes.retain(|n| {
+                n.scope == sc
+                    || crate::hubs::is_hub_node_id(&n.id)
+            });
+        }
         if decouple_ast {
             nodes.retain(|n| n.node_type != NodeType::Symbol);
             for node in &mut nodes {
@@ -60,7 +80,7 @@ impl BrainExporter {
         }
 
         let mut edges = db.get_all_edges()?;
-        if decouple_ast {
+        {
             let keep: std::collections::HashSet<String> =
                 nodes.iter().map(|n| n.id.clone()).collect();
             edges.retain(|e| keep.contains(&e.source_id) && keep.contains(&e.target_id));
@@ -102,6 +122,16 @@ impl BrainImporter {
     ///
     /// Number of nodes upserted.
     pub fn import_bundle<P: AsRef<Path>>(db: &Database, input_path: P) -> Result<usize> {
+        Self::import_bundle_with_scope(db, input_path, None)
+    }
+
+    /// Import a bundle, optionally stamping every node with `stamp_scope`
+    /// (keeps SubBrain isolation when merging a shared brain into multi mode).
+    pub fn import_bundle_with_scope<P: AsRef<Path>>(
+        db: &Database,
+        input_path: P,
+        stamp_scope: Option<&str>,
+    ) -> Result<usize> {
         let text = fs::read_to_string(input_path.as_ref())?;
         let bundle: PortableBrainBundle = serde_json::from_str(&text)?;
         if bundle.version > BUNDLE_VERSION {
@@ -114,7 +144,11 @@ impl BrainImporter {
         let mut count = 0usize;
         db.with_transaction(|conn| {
             for node in &bundle.nodes {
-                db.insert_node_on(conn, node)?;
+                let mut node = node.clone();
+                if let Some(sc) = stamp_scope {
+                    node.scope = sc.to_string();
+                }
+                db.insert_node_on(conn, &node)?;
                 count += 1;
             }
             for edge in &bundle.edges {
@@ -145,6 +179,7 @@ mod tests {
             symbol_hash: Some(99),
             summary: Some("s".into()),
             content_hash: Some("h".into()),
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: 1,
             updated_at: 1,
         };
@@ -156,6 +191,7 @@ mod tests {
             symbol_hash: Some(1),
             summary: None,
             content_hash: None,
+            scope: crate::scopes::MAIN_SCOPE.to_string(),
             created_at: 1,
             updated_at: 1,
         };
@@ -196,6 +232,7 @@ mod tests {
                 symbol_hash: None,
                 summary: None,
                 content_hash: None,
+                scope: crate::scopes::MAIN_SCOPE.to_string(),
                 created_at: 1,
                 updated_at: 1,
             })

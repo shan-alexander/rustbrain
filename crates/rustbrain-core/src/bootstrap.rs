@@ -1225,6 +1225,52 @@ rustbrain sync && rustbrain doctor && rustbrain links
 
 ---
 
+## Multi-brain (optional — multi-crate / umbrella workspaces)
+
+**Default is single-brain.** Only enable multi when you need SubBrains.
+
+### Discovering ids (agents: run these *before* import/attach)
+
+| What you need | Command | What it prints |
+|---------------|---------|----------------|
+| **SubBrain ids in *this* workspace** | `rustbrain scopes list` | `mode`, `main`, each SubBrain **id**, roots, node counts |
+| Machine-readable ids | `rustbrain scopes list --json` | `manifest.scopes[].id` + `counts` |
+| Ids in **another** path | `rustbrain scopes list -w /path/to/other` | Same, for that tree (if it already has multi-brain) |
+| Cargo package → candidate SubBrain id | `rustbrain scopes enable --cargo` then `scopes list` | Path-stable ids (e.g. `rustbrain-cli`); package name may appear as **alias** |
+| **Pick an id for a folder you will import** | You **choose** it: use the directory name | e.g. `./project-a` → `--as project-a` or `attach project-a --root project-a` (sanitize: lowercase, `-` not `_`) |
+| Node ids (notes/symbols) | `rustbrain query "…" --scores` / `graph <path>` | Node `id:` lines; hubs: `readme`, `changelog`, `roadmap`, `backlog` |
+
+**Rule:** SubBrain **id** is not auto-discovered from a foreign single-brain until you **name** it (`--as` / `attach <id>`). Prefer the folder name. Confirm with `scopes list` after attach/import.
+
+```bash
+# 1) See current mode + ids
+rustbrain scopes list
+rustbrain scopes list --json
+
+# 2) Enable multi (Cargo monorepo)
+rustbrain scopes enable --cargo && rustbrain scopes list
+
+# 3) Umbrella: three former mono-repos under one folder
+rustbrain scopes enable --empty
+rustbrain scopes attach project-a --root project-a          # id = project-a (you chose it)
+rustbrain scopes import --from ./project-b --as project-b --mount
+rustbrain scopes import --from ./project-c --as project-c --mount
+rustbrain scopes reconcile
+rustbrain scopes list                                        # confirm ids + node counts
+
+# 4) Query / share using the id from `scopes list`
+rustbrain query "topic" --scope project-a                    # hubs-only MainBrain mix
+rustbrain query "topic" --scope project-a --scope-strict
+rustbrain query "topic" --scope project-a --scope-with-main
+rustbrain export --out a.brainbundle --scope project-a       # share SubBrain without merge
+# Keep separate: import --as id · Merge into MainBrain: import --into main
+# Fold SubBrain into main: scopes absorb project-a
+```
+
+Nested `project-a/.brain` may still exist for working inside that tree alone. The umbrella MainBrain owns path scopes after attach/mount.
+
+---
+
 ## CLI reference (variations)
 
 ### `setup` / `bootstrap` / `init` / `sync`
@@ -1264,8 +1310,12 @@ Default is **note-first** (goals/ADRs/concepts; symbols excluded).
 | `query "x" -n 10` | Cap results |
 | `query "x" --all-workspaces` | Merge across registered local workspaces |
 | `query "x" -w /path/to/repo` | Explicit workspace |
+| `query "x" --scope ID` | Multi-brain: SubBrain + hub nodes only (default) |
+| `query "x" --scope ID --scope-strict` | SubBrain only |
+| `query "x" --scope ID --scope-with-main` | SubBrain + all MainBrain nodes |
+| `query "status:in_progress" --type plan` | Plan densify tokens after sync |
 
-Natural language: stopwords dropped; multi-token uses OR (`why egui not tauri` → egui OR tauri). **Garbage-in:** thin README → thin hits. Empty results print a hint (`--with-symbols` or sync).
+Natural language: stopwords dropped; multi-token uses OR (`why egui not tauri` → egui OR tauri). **Garbage-in:** thin README → thin hits. Empty results print a hint (`--with-symbols` or sync). Learn SubBrain **ID** via `scopes list` first.
 
 ### `context` (agent pack)
 
@@ -1283,9 +1333,31 @@ Builds FTS seeds + optional graph hops under a token budget. Default format: **m
 | `context "topic" --no-hop-symbols` | Never pack symbol neighbors |
 | `context "topic" --type adr,goal` | Seed type filter |
 | `context "topic" -p "…"` | Same as positional prompt |
+| `context "topic" --scope ID` | Scoped seeds (hubs-only Main mix); neighbors may hop out |
+| `context "topic" --scope ID --scope-strict` | Strict SubBrain seeds |
 | `context` from `src/` | Finds parent `.brain` automatically |
 
 Packing prefers **seeds and ADRs/goals** over symbol noise; skips ADR `TEMPLATE`; dedupes README vs from-readme; strips YAML frontmatter from excerpts.
+
+### `scopes` (MainBrain / SubBrain)
+
+| Command | Expect |
+|---------|--------|
+| `scopes list` | **Primary way to learn ids** — mode, main, SubBrain ids, roots, node counts |
+| `scopes list --json` | Same for tools (`manifest.scopes[].id`) |
+| `scopes list -w /other` | Inspect another workspace path |
+| `scopes enable --cargo` | multi + Cargo members as SubBrains; then `sync` |
+| `scopes enable --empty` | multi with no SubBrains yet |
+| `scopes add ID --root PATH` | Add/update SubBrain root(s) |
+| `scopes attach ID --root PATH` | Umbrella: existing dir as SubBrain (no copy) |
+| `scopes import --from PATH --as ID` | Copy notes → separate SubBrain |
+| `scopes import --from PATH --as ID --mount` | Source under this tree → attach path, no copy |
+| `scopes import --from PATH --into main` | **Merge** copy into MainBrain |
+| `scopes absorb ID` | SubBrain nodes → main; drop SubBrain def |
+| `scopes absorb all` | Everything → main; mode=single |
+| `scopes remove ID [--absorb]` | Drop def (prefer `--absorb`) |
+| `scopes reconcile` | Recompute all node scopes from manifest |
+| `scopes disable [--absorb-all]` | Back to single mode |
 
 ### `graph` (structure inspect)
 
@@ -1349,6 +1421,7 @@ rustbrain note new --type edge_case --title "NixOS EGL_BAD_PARAMETER"
 | `note new … --tags a,b --aliases x` | Frontmatter tags/aliases |
 | `note new … --no-sync` | Write only; `sync` after you edit |
 | `note new … --force` | Overwrite existing path |
+| `note new … --scope ID` | Multi-brain: write under that SubBrain’s tree |
 | `note new … -w /repo` | Explicit workspace |
 
 Types: `goal`, `adr`, `alternative`, `concept`, `analysis`, `plan`, `changelog`, `reference`, `edge_case`.
@@ -1368,10 +1441,15 @@ Link **code → notes** in rustdoc: `/// See [[docs/adr/my-adr]]` (sync creates 
 |---------|--------|
 | `links` | Unresolved WikiLinks / `symbol:` targets |
 | `links --json` | Machine-readable |
+| `links --auto` | Soft `auto_*` edges (no Markdown rewrite) |
+| `links --apply --dry-run` / `--write` | Pending WikiLink normalize (see above) |
 | `watch` | Debounced re-sync on file changes (Ctrl-C to stop) |
 | `watch --debounce-ms 500` | Slower debounce |
 | `export --out x.brainbundle` | Portable JSON graph (AST optionally decoupled) |
+| `export --out x.brainbundle --scope ID` | Share **one SubBrain** (+ hubs) without full merge |
 | `import --input x.brainbundle` | Merge bundle into this brain + remmap |
+
+Full flag book: repo `docs/CLI.md` or `rustbrain <cmd> --help`.
 
 ---
 

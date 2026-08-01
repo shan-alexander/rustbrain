@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.21] - 2026-08-01
+
+### Added — MainBrain / SubBrain scopes (multi-crate / multi-root)
+
+- **Opt-in multi-brain:** default remains **single** MainBrain; `rustbrain scopes enable --cargo|--empty`.
+- Schema **v2:** `nodes.scope` (default `main`); `.brain/workspace.json` mode + flat SubBrain roots.
+- CLI: `scopes list|enable|disable|add|remove|absorb|import|attach|reconcile`;
+  `query`/`context`/`note` `--scope` with **hubs-only** default, `--scope-strict`, `--scope-with-main`.
+- **SQL-side** scope filter on FTS (avoids post-filter starvation).
+- **Absorb** SubBrain → MainBrain; **import** copy vs **mount** (umbrella) vs **merge** `--into main`.
+- **`export --scope`** share a SubBrain without merging the whole brain.
+- Frontmatter `scope:` override when multi + known id; FTS densify on `set_node_scope` / reconcile.
+- Doctor: orphan scopes, empty SubBrains, missing roots, mode/DB mismatch.
+- Cargo `[workspace].members` discovery (path-stable ids; package name as alias).
+- AGENTS.md + crate READMEs: **how to discover SubBrain ids** (`scopes list`) and full CLI tables.
+
+### Added — engine performance benches
+
+- Renamed Criterion package `json-stack-bench` → **`crates/bench`** (`cargo bench -p bench`).
+- New **`rustbrain_performance`** bench: FTS search vs walk/`LIKE`, context vs concat/grep,
+  SQL + CSR graph vs re-parse WikiLinks, fence-aware WikiLink extract vs regex, sync/open micros.
+- Doc: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md); performance tables in root + crate READMEs.
+
 ## [0.3.20] - 2026-07-31
 
 ### Documentation — crate READMEs
@@ -127,7 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation / decision — JSON stack (serde vs jshift)
 
 - Inventory of all `serde_json` / serde-derive / optional jshift usage.
-- Criterion harness [`crates/json-stack-bench`](crates/json-stack-bench): workspace markers,
+- Criterion harness [`crates/bench`](crates/bench) (formerly `json-stack-bench`): workspace markers,
   doctor pretty JSON, brainbundle full I/O, large sparse path get, in-place field patch.
 - **Result:** keep **serde_json** for production full encode/decode/pretty CLI and bundles;
   keep **jshift** optional for sparse path / in-place mutate only. Not a wholesale replace.
