@@ -327,7 +327,7 @@ enum Commands {
 enum NoteCmd {
     /// Create a new Markdown note under docs/
     New {
-        /// Node type: goal, adr, alternative, concept, analysis, reference, edge_case
+        /// Node type: goal, adr, alternative, concept, analysis, plan, changelog, reference, edge_case
         #[arg(long, value_name = "TYPE")]
         r#type: String,
         /// Title (becomes the Markdown H1 + filename slug)
@@ -553,7 +553,7 @@ fn run() -> Result<ExitCode> {
                 let do_sync = sync && !no_sync;
                 let node_type = NodeType::parse(&r#type).ok_or_else(|| {
                     anyhow::anyhow!(
-                        "unknown type '{type}'. use: goal, adr, alternative, concept, analysis, reference, edge_case"
+                        "unknown type '{type}'. use: goal, adr, alternative, concept, analysis, plan, changelog, reference, edge_case (plan aliases: roadmap, backlog, todo, tasklist)"
                     )
                 })?;
                 let tags = tags

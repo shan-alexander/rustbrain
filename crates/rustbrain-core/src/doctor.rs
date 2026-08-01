@@ -524,6 +524,8 @@ fn assess_knowledge_density(
         NodeType::EdgeCase,
         NodeType::Reference,
         NodeType::Alternative,
+        NodeType::Changelog,
+        NodeType::Plan,
     ] {
         let ids = db.list_node_ids_by_type(ty.as_str())?;
         for id in ids {

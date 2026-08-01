@@ -1,10 +1,10 @@
-# rustbrain CLI reference (v0.3.15)
+# rustbrain CLI reference (v0.3.16)
 
 Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.15 --locked
+# or pin: cargo install rustbrain --version 0.3.16 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 

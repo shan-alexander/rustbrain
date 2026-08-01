@@ -155,6 +155,8 @@ fn list_note_nodes(db: &Database) -> Result<Vec<Node>> {
         NodeType::EdgeCase,
         NodeType::Reference,
         NodeType::Alternative,
+        NodeType::Changelog,
+        NodeType::Plan,
     ] {
         for id in db.list_node_ids_by_type(ty.as_str())? {
             if let Some(n) = db.get_node(&id)? {

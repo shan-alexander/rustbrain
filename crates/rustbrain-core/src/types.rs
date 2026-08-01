@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 /// First-class domain node types in a rustbrain repository.
 ///
-/// Serialized as `snake_case` strings in YAML frontmatter and SQLite
-/// (`goal`, `adr`, `alternative`, `concept`, `analysis`, `symbol`, `reference`, `edge_case`).
+/// Serialized as `snake_case` strings in YAML frontmatter and SQLite.
+/// Root hubs: `CHANGELOG.md` → [`Changelog`], `ROADMAP.md` / `BACKLOG.md` → [`Plan`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeType {
@@ -32,6 +32,12 @@ pub enum NodeType {
     Reference,
     /// Known bug, concurrency trap, memory aliasing quirk, or platform gotcha.
     EdgeCase,
+    /// Ship history / release notes — typically root [`CHANGELOG.md`](https://keepachangelog.com/)
+    /// (hub id `changelog`). Never invent entries; only index what is on disk.
+    Changelog,
+    /// Plans, roadmaps, backlogs, task lists, and todos (hub ids `roadmap` / `backlog`
+    /// for root files; hand-written notes under `docs/plans/`).
+    Plan,
 }
 
 impl NodeType {
@@ -46,6 +52,8 @@ impl NodeType {
             NodeType::Symbol => "symbol",
             NodeType::Reference => "reference",
             NodeType::EdgeCase => "edge_case",
+            NodeType::Changelog => "changelog",
+            NodeType::Plan => "plan",
         }
     }
 
@@ -63,6 +71,9 @@ impl NodeType {
             "symbol" => Some(NodeType::Symbol),
             "reference" => Some(NodeType::Reference),
             "edge_case" => Some(NodeType::EdgeCase),
+            "changelog" | "change_log" | "release_notes" => Some(NodeType::Changelog),
+            "plan" | "roadmap" | "backlog" | "tasklist" | "task_list" | "todo" | "todos"
+            | "task" | "tasks" => Some(NodeType::Plan),
             _ => None,
         }
     }
@@ -372,5 +383,9 @@ mod tests {
         assert_eq!(NodeType::parse("analysis"), Some(NodeType::Analysis));
         assert_eq!(NodeType::parse("analyses"), Some(NodeType::Analysis));
         assert_eq!(NodeType::Analysis.as_str(), "analysis");
+        assert_eq!(NodeType::parse("changelog"), Some(NodeType::Changelog));
+        assert_eq!(NodeType::parse("roadmap"), Some(NodeType::Plan));
+        assert_eq!(NodeType::parse("todo"), Some(NodeType::Plan));
+        assert_eq!(NodeType::Plan.as_str(), "plan");
     }
 }

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.16] - 2026-07-31
+
+### Added — `changelog` + `plan` node types; `docs/AGENTS.md`
+
+- **`NodeType::Changelog`** — root `CHANGELOG.md` / `CHANGES.md` / `HISTORY.md` hub (`changelog`);
+  Keep a Changelog summaries + version aliases (was loosely typed as `reference`).
+- **`NodeType::Plan`** — roadmaps, backlogs, tasklists, todos (`plan`; parse aliases:
+  `roadmap`, `backlog`, `todo`, `tasklist`, …). Root `ROADMAP.md` / `BACKLOG.md` hubs;
+  hand-written notes under **`docs/plans/`** with checklist scaffold.
+- Bootstrap scaffolds `docs/plans/`, `docs/changelogs/`, and injects **`docs/AGENTS.md`**:
+  **every agent turn** must use `rustbrain context` / `query` / `graph` / `sync` (docs-local mandate).
+- Ranking boosts for plan/changelog; doctor / AGENTS cookbook updated.
+
 ## [0.3.15] - 2026-07-31
 
 ### Added — CHANGELOG / planning hubs (Rust community standards)

@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.15"
+version = "0.3.16"
 edition = "2021"
 rust-version = "1.80"
 authors = ["rustbrain contributors"]
@@ -20,7 +20,7 @@ keywords = ["knowledge-graph", "markdown", "obsidian", "sqlite", "cli"]
 categories = ["command-line-utilities", "text-processing", "database"]
 
 [workspace.dependencies]
-rustbrain-core = { version = "0.3.15", path = "crates/rustbrain-core" }
+rustbrain-core = { version = "0.3.16", path = "crates/rustbrain-core" }
 
 rusqlite = { version = "0.32", features = ["bundled"] }
 memmap2 = "0.9"

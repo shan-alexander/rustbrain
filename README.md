@@ -242,7 +242,7 @@ Ignore dialect + CLI details: [docs/CLI.md](docs/CLI.md).
 
 ## What v0.3.x claims / does not
 
-**Does:** local Markdown second brain, bootstrap for mature repos, doctor, agent `note new`, ranked FTS with type filters, graph-aware context (including note→symbol hops), portable bundles. Indexes Rust community hubs: root **`README.md`** (`readme`) and **`CHANGELOG.md`** (`changelog`, Keep a Changelog) plus optional `ROADMAP.md` / `BACKLOG.md`.
+**Does:** local Markdown second brain, bootstrap for mature repos, doctor, agent `note new`, ranked FTS with type filters, graph-aware context (including note→symbol hops), portable bundles. First-class types **`changelog`** (root `CHANGELOG.md`) and **`plan`** (roadmaps/backlogs/todos under `docs/plans/`). Bootstrap injects **`docs/AGENTS.md`** so agents use rustbrain every turn.
 
 **Does not (yet):** neural embeddings, explicit AVX-512 kernels, full Obsidian write-back, SubBrain `--scope`.
 

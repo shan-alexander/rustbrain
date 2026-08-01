@@ -46,6 +46,9 @@ pub fn default_dir_for_type(ty: &NodeType) -> &'static str {
         NodeType::Symbol => "docs/concepts",
         NodeType::Reference => "docs/concepts",
         NodeType::EdgeCase => "docs/edge_cases",
+        // Root Keep a Changelog file is the hub; supplementary release notes live here.
+        NodeType::Changelog => "docs/changelogs",
+        NodeType::Plan => "docs/plans",
     }
 }
 
@@ -122,6 +125,8 @@ pub fn create_note(workspace: &Path, opts: &NoteNewOptions) -> Result<NoteCreate
                 "\n## Goals\n\n- \n\n## Non-goals\n\n- \n".to_string()
             }
             NodeType::Analysis => ANALYSIS_NOTE_TEMPLATE.to_string(),
+            NodeType::Plan => PLAN_NOTE_TEMPLATE.to_string(),
+            NodeType::Changelog => CHANGELOG_NOTE_TEMPLATE.to_string(),
             _ => "\n".to_string(),
         }
     } else {
@@ -183,6 +188,63 @@ const ANALYSIS_NOTE_TEMPLATE: &str = r#"
 ## Related
 
 <!-- [[goals/…]]  [[concepts/…]]  symbol:Type::method  [[docs/edge_cases/…]] -->
+
+"#;
+
+/// Scaffold for plans / roadmaps / tasklists / todos (not a decision; not ship history).
+const PLAN_NOTE_TEMPLATE: &str = r#"
+## Status
+
+<!-- draft | active | done | deferred — free-form, not a kanban product -->
+
+## Intent
+
+<!-- What outcome does this plan unlock? Link goals: [[docs/goals/…]] -->
+
+## Items
+
+- [ ] 
+- [ ] 
+
+## Priority / order
+
+1. 
+
+## Out of scope
+
+- 
+
+## Related
+
+<!-- [[changelog]]  [[roadmap]]  [[docs/adr/…]]  analysis notes -->
+
+"#;
+
+/// Scaffold for supplementary changelog notes (prefer root CHANGELOG.md as hub).
+const CHANGELOG_NOTE_TEMPLATE: &str = r#"
+## Version
+
+<!-- e.g. 0.4.0 — also update root CHANGELOG.md (Keep a Changelog) when shipping -->
+
+## Summary
+
+-
+
+## Added
+
+-
+
+## Changed
+
+-
+
+## Fixed
+
+-
+
+## Related
+
+<!-- Prefer the root hub: [[changelog]]  ADRs: [[docs/adr/…]] -->
 
 "#;
 
@@ -258,6 +320,32 @@ mod tests {
         assert!(text.contains("## Findings"));
         assert!(text.contains("## Recommendations"));
         assert!(text.contains("cargo bench"));
+    }
+
+    #[test]
+    fn plan_scaffold_under_docs_plans() {
+        let dir = tempdir().unwrap();
+        let created = create_note(
+            dir.path(),
+            &NoteNewOptions {
+                node_type: NodeType::Plan,
+                title: "Q3 roadmap".into(),
+                note: None,
+                tags: vec![],
+                aliases: vec![],
+                dir: None,
+                force: false,
+            },
+        )
+        .unwrap();
+        assert!(created
+            .rel_path
+            .to_string_lossy()
+            .starts_with("docs/plans/"));
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        assert!(text.contains("node_type: plan"));
+        assert!(text.contains("## Items"));
+        assert!(text.contains("- [ ]"));
     }
 
     #[test]

@@ -91,6 +91,8 @@ const DOC_DIRS: &[&str] = &[
     "docs/adr",
     "docs/concepts",
     "docs/analysis",
+    "docs/plans",
+    "docs/changelogs",
     "docs/edge_cases",
     "docs/implementation",
     "docs/experience",
@@ -156,6 +158,12 @@ pub fn bootstrap_workspace(workspace: &Path, mut opts: BootstrapOptions) -> Resu
             path: "AGENTS.md".into(),
             detail: "disabled (--no-agents-md / write_agents_md=false)".into(),
         });
+    }
+
+    // Always inject docs/AGENTS.md with every scaffold (or when writing agents), so
+    // agents working under docs/ see rustbrain ops on every turn.
+    if opts.scaffold_docs || opts.write_agents_md.unwrap_or(true) {
+        write_docs_agents_md(&workspace, opts.write, opts.force, &mut actions)?;
     }
 
     // Ensure brain exists when writing
@@ -412,7 +420,35 @@ fn scaffold_docs(
         actions,
     )?;
 
+    let plans_readme = workspace.join("docs/plans/README.md");
+    write_if_allowed(
+        &plans_readme,
+        "docs/plans/README.md",
+        PLANS_DIR_README,
+        write,
+        force,
+        actions,
+    )?;
+
     Ok(())
+}
+
+/// Inject `docs/AGENTS.md` — per-docs cookbook: use rustbrain every agent turn.
+fn write_docs_agents_md(
+    workspace: &Path,
+    write: bool,
+    force: bool,
+    actions: &mut Vec<BootstrapAction>,
+) -> Result<()> {
+    let path = workspace.join("docs/AGENTS.md");
+    write_if_allowed(
+        &path,
+        "docs/AGENTS.md",
+        DOCS_AGENTS_MD,
+        write,
+        force,
+        actions,
+    )
 }
 
 fn setup_ignore(
@@ -821,7 +857,103 @@ node_type: goal
 Place project goals and non-goals here.
 
 - `from-readme.md` — harvested by `rustbrain bootstrap` (when README exists)
+- Hand-written: `rustbrain note new --type goal --title "…"`
 - Add ADRs under `docs/adr/` for decisions that achieve these goals
+"#;
+
+const PLANS_DIR_README: &str = r#"---
+node_type: plan
+tags: [plan, index]
+---
+# Plans / roadmaps / tasklists
+
+Use **`node_type: plan`** (aliases: roadmap, backlog, todo, tasklist) for prioritization
+and work queues — not ship history (that is root **`CHANGELOG.md`** → hub `changelog`).
+
+```bash
+rustbrain note new --type plan --title "Q3 platform roadmap"
+rustbrain note new --type plan --title "Backlog triage 2026-07"
+rustbrain sync
+rustbrain context "roadmap priorities"
+```
+
+Root hubs (if present): `ROADMAP.md` → id `roadmap`, `BACKLOG.md` → id `backlog`.
+"#;
+
+/// Injected under `docs/AGENTS.md` so agents in the docs tree always see rustbrain ops.
+const DOCS_AGENTS_MD: &str = r#"<!-- rustbrain-docs-agents: generated/maintained by rustbrain bootstrap/setup.
+     Re-run with --force to refresh. Root AGENTS.md has full cookbook; this file is the docs-local mandate. -->
+# AGENTS.md — docs/ knowledge protocol
+
+This repository uses **[rustbrain](https://github.com/shan-alexander/rustbrain)** as the project second brain.
+
+## Every agent turn (mandatory)
+
+Before large edits, refactors, or claims about decisions/status/history, **run rustbrain** so context is graph-backed, not invented:
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"   # after cargo install rustbrain
+
+# Orient (content pack under token budget)
+rustbrain context "why <decision> / how <feature> works / what shipped"
+
+# Search notes (and --with-symbols when hunting code)
+rustbrain query "<topic>" --scores
+
+# Structure: who links to whom
+rustbrain graph docs/<path>.md
+rustbrain graph changelog          # if CHANGELOG.md exists
+rustbrain graph roadmap            # if ROADMAP.md exists
+
+# Health + orphans
+rustbrain doctor
+rustbrain doctor --orphans
+```
+
+After you change docs, ADRs, goals, plans, or code:
+
+```bash
+rustbrain sync
+# optional: soft-link orphans, normalize pending WikiLinks
+rustbrain links --auto
+rustbrain links --apply --dry-run
+rustbrain links --apply --write
+```
+
+## Where knowledge lives
+
+| Artifact | Path / hub | Type |
+|----------|------------|------|
+| Ship history (Keep a Changelog) | root **`CHANGELOG.md`** → hub **`changelog`** | `changelog` |
+| Goals | `docs/goals/` | `goal` |
+| Decisions | `docs/adr/` | `adr` |
+| Plans / roadmaps / todos | `docs/plans/`, root `ROADMAP.md` / `BACKLOG.md` | `plan` |
+| Investigations | `docs/analysis/` | `analysis` |
+| Concepts | `docs/concepts/` | `concept` |
+| Edge cases | `docs/edge_cases/` | `edge_case` |
+
+**Do not invent ADR history or changelog entries.** If `CHANGELOG.md` exists, treat it as ground truth for releases; update it when you ship, then `sync`.
+
+## Capture work
+
+```bash
+# Prefer scaffold, then edit the file, then sync
+rustbrain note new --type adr --title "…"
+rustbrain note new --type plan --title "…"
+rustbrain note new --type analysis --title "…"
+rustbrain note new --type goal --title "…"
+rustbrain sync
+```
+
+Link notes→code with `symbol:Name` and code→notes with `[[docs/…]]` in rustdoc.
+
+## Full repo cookbook
+
+See root **`AGENTS.md`** for complete CLI variations (`setup`, bootstrap flags, export/import, …).
+
+```bash
+rustbrain --help
+```
 "#;
 
 const BOOTSTRAP_CHECKLIST: &str = r#"# Bootstrap checklist
@@ -833,7 +965,9 @@ Generated by `rustbrain bootstrap`. Tick items as you promote drafts into real k
 - [ ] Skim `docs/implementation/module-map.generated.md` and link key symbols from concepts
 - [ ] Add `edge_case` notes for known traps
 - [ ] Capture investigations as `analysis` notes under `docs/analysis/` (dated; optional recs → later ADR)
-- [ ] Read / customize root `AGENTS.md` for AI coding agents
+- [ ] Capture roadmaps/tasklists under `docs/plans/` (`note new --type plan`)
+- [ ] Keep root `CHANGELOG.md` truthful when shipping (hub `changelog`)
+- [ ] Read / customize root `AGENTS.md` and `docs/AGENTS.md` for AI coding agents
 - [ ] Run `rustbrain sync`
 - [ ] Run `rustbrain doctor` and clear pending links
 - [ ] Optional: `rustbrain note new --type concept --title "…"` (scaffold, then edit the file)
@@ -1116,9 +1250,11 @@ rustbrain note new --type edge_case --title "NixOS EGL_BAD_PARAMETER"
 | `note new … --force` | Overwrite existing path |
 | `note new … -w /repo` | Explicit workspace |
 
-Types: `goal`, `adr`, `alternative`, `concept`, `analysis`, `reference`, `edge_case`.
+Types: `goal`, `adr`, `alternative`, `concept`, `analysis`, `plan`, `changelog`, `reference`, `edge_case`.
 - **concept** — timeless “what is X”
 - **analysis** — dated investigation (crate compare, design options, `cargo bench` / criterion review, data digests); recommendations optional; promote decisions to **adr**
+- **plan** — roadmaps, backlogs, tasklists, todos (`docs/plans/`; aliases: roadmap, backlog, todo)
+- **changelog** — release notes (prefer root **CHANGELOG.md** hub; type `changelog`)
 - **adr** — we chose X
 - **edge_case** — a specific trap
 
@@ -1143,8 +1279,10 @@ Link **code → notes** in rustdoc: `/// See [[docs/adr/my-adr]]` (sync creates 
 | Path | Purpose |
 |------|---------|
 | `README.md` | Hub node `readme` (quality of harvest depends on this) |
-| **`CHANGELOG.md`** | Hub node **`changelog`** — Rust/crates.io standard ([Keep a Changelog](https://keepachangelog.com/) + SemVer). Indexed on `sync`; use for "what shipped / unreleased" |
-| `ROADMAP.md` / `BACKLOG.md` (optional) | Hubs `roadmap` / `backlog` for prioritization & HITL planning |
+| **`CHANGELOG.md`** | Hub **`changelog`**, type **`changelog`** — Keep a Changelog + SemVer. Ground truth for "what shipped" |
+| `ROADMAP.md` / `BACKLOG.md` (optional) | Hubs `roadmap` / `backlog`, type **`plan`** |
+| `docs/plans/` | Hand-written plans / roadmaps / tasklists (`note new --type plan`) |
+| `docs/AGENTS.md` | **Mandatory** docs-local agent protocol: use rustbrain every turn |
 | `docs/goals/from-readme.md` | **Algorithmic** harvest of README sections (not an LLM) |
 | `docs/goals/`, `docs/adr/`, `docs/analysis/`, … | Hand-written project knowledge |
 | `docs/analysis/` | Dated investigations (`note new --type analysis`) — good for epic digests |
@@ -1158,21 +1296,23 @@ Link **code → notes** in rustdoc: `/// See [[docs/adr/my-adr]]` (sync creates 
 If this repo publishes a crate (or you want ship history for agents):
 
 1. Keep a root **`CHANGELOG.md`** in [Keep a Changelog](https://keepachangelog.com/) form (`## [x.y.z] - YYYY-MM-DD`, `## [Unreleased]`).
-2. Run **`rustbrain sync`** after edits — rustbrain maps it to stable id **`changelog`** (type `reference`), aliases versions / "releases" / "unreleased", and boosts it for release-oriented `query` / `context`.
+2. Run **`rustbrain sync`** after edits — maps to stable id **`changelog`**, type **`changelog`**, aliases versions / "releases" / "unreleased"; boosts release-oriented `query` / `context`.
 3. Prefer **truthful ship notes** over inventing history. Agents: `rustbrain context "what changed in 0.3"` / `query changelog --scores`.
 
 Doctor reports `no_changelog` (info) when a `Cargo.toml` exists but no CHANGELOG; `changelog_latest` when the hub is healthy.
+
+Also read **`docs/AGENTS.md`** — mandates rustbrain tooling on every agent turn when working in docs/.
 
 ### HITL planning (roadmaps, epics, status)
 
 | Need | Where it lives | rustbrain type / hub |
 |------|----------------|----------------------|
-| Shipped / versioned history | `CHANGELOG.md` | hub `changelog` |
-| Future direction | `ROADMAP.md` or `docs/goals/` | hub `roadmap` or `goal` |
-| Unordered work queue | `BACKLOG.md` or goals | hub `backlog` or `goal` |
+| Shipped / versioned history | `CHANGELOG.md` | type `changelog`, hub `changelog` |
+| Future direction | `ROADMAP.md` or `docs/plans/` | type `plan`, hub `roadmap` |
+| Unordered work queue | `BACKLOG.md` or `docs/plans/` | type `plan`, hub `backlog` |
 | Time-bound dig / epic write-up | `docs/analysis/` | `analysis` |
 | Decision | `docs/adr/` | `adr` |
-| Status of a slice | short analysis or goal note + WikiLinks | do **not** invent kanban columns |
+| Status of a slice | plan checklist or analysis + WikiLinks | do **not** invent kanban columns |
 
 Query: `context "roadmap priorities"`, `context "what shipped"`, `graph changelog`.
 
@@ -1293,6 +1433,7 @@ mod tests {
         let report = bootstrap_noninteractive(dir.path(), true, false).unwrap();
         assert!(report.wrote);
         assert!(dir.path().join("docs/goals").is_dir());
+        assert!(dir.path().join("docs/plans").is_dir());
         assert!(dir.path().join("docs/adr/TEMPLATE.md").is_file());
         assert!(dir.path().join(".rustbrainignore").is_file());
         assert!(dir.path().join("docs/goals/from-readme.md").is_file());
@@ -1302,6 +1443,12 @@ mod tests {
             "AGENTS.md should mention rustbrain"
         );
         assert!(agents.contains("rustbrain context") || agents.contains("setup --yes"));
+        let docs_agents = std::fs::read_to_string(dir.path().join("docs/AGENTS.md")).unwrap();
+        assert!(
+            docs_agents.contains("Every agent turn")
+                && docs_agents.contains("rustbrain context"),
+            "docs/AGENTS.md must mandate rustbrain every turn"
+        );
         let gi = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
         assert!(gi.contains(".brain/"), "expected .brain/ in gitignore: {gi}");
         #[cfg(feature = "ast")]

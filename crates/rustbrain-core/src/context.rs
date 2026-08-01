@@ -563,6 +563,8 @@ fn pack_rank(c: &Candidate) -> f32 {
     let ty = match c.node.node_type {
         NodeType::Adr => 2.5,
         NodeType::Goal => 2.0,
+        NodeType::Changelog => 1.95,
+        NodeType::Plan => 1.9,
         NodeType::EdgeCase => 1.8,
         NodeType::Analysis => 1.65,
         NodeType::Concept => 1.4,

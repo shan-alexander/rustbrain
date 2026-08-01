@@ -157,12 +157,14 @@ impl WorkspaceIndexer {
                 match hub {
                     // Root README is the project front door; default to Goal unless author overrides.
                     Some(crate::hubs::ProjectHub::Readme) => parsed.unwrap_or(NodeType::Goal),
-                    // Keep a Changelog / ROADMAP / BACKLOG: project-level reference docs.
+                    // Keep a Changelog → first-class Changelog type.
+                    Some(crate::hubs::ProjectHub::Changelog) => {
+                        parsed.unwrap_or(NodeType::Changelog)
+                    }
+                    // ROADMAP / BACKLOG → Plan (roadmaps, tasklists, todos).
                     Some(
-                        crate::hubs::ProjectHub::Changelog
-                        | crate::hubs::ProjectHub::Roadmap
-                        | crate::hubs::ProjectHub::Backlog,
-                    ) => parsed.unwrap_or(NodeType::Reference),
+                        crate::hubs::ProjectHub::Roadmap | crate::hubs::ProjectHub::Backlog,
+                    ) => parsed.unwrap_or(NodeType::Plan),
                     None => parsed.unwrap_or(NodeType::Concept),
                 }
             }
@@ -170,11 +172,10 @@ impl WorkspaceIndexer {
             {
                 match hub {
                     Some(crate::hubs::ProjectHub::Readme) => NodeType::Goal,
+                    Some(crate::hubs::ProjectHub::Changelog) => NodeType::Changelog,
                     Some(
-                        crate::hubs::ProjectHub::Changelog
-                        | crate::hubs::ProjectHub::Roadmap
-                        | crate::hubs::ProjectHub::Backlog,
-                    ) => NodeType::Reference,
+                        crate::hubs::ProjectHub::Roadmap | crate::hubs::ProjectHub::Backlog,
+                    ) => NodeType::Plan,
                     None => NodeType::Concept,
                 }
             }
@@ -1018,7 +1019,7 @@ impl StorageEngine {
             .get_node(crate::hubs::HUB_CHANGELOG)
             .unwrap()
             .expect("changelog hub");
-        assert_eq!(node.node_type, NodeType::Reference);
+        assert_eq!(node.node_type, NodeType::Changelog);
         assert_eq!(node.file_path.as_deref(), Some("CHANGELOG.md"));
         assert!(
             node.summary

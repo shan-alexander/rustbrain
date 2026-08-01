@@ -47,6 +47,8 @@ impl Default for QueryOptions {
             limit: 50,
             type_boosts: vec![
                 (NodeType::Goal, 1.15),
+                (NodeType::Changelog, 1.12),
+                (NodeType::Plan, 1.12),
                 (NodeType::Adr, 1.1),
                 (NodeType::EdgeCase, 1.1),
                 (NodeType::Analysis, 1.08),
