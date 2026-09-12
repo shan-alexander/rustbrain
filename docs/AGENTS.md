@@ -74,7 +74,7 @@ Link notes→code with `symbol:Name` and code→notes with `[[docs/…]]` in rus
 
 ## Full repo cookbook
 
-See root **`AGENTS.md`** for complete CLI variations (`setup`, bootstrap flags, export/import, …).
+See **`SKILL.md`** (or `.<harness>/skills/rustbrain/SKILL.md`) for the CLI cookbook. Root **`AGENTS.md`** is the short rustbrain mandate.
 
 ```bash
 rustbrain --help

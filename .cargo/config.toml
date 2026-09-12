@@ -1,0 +1,11 @@
+# Windows MSVC default stack is 1 MiB. clap's debug `Parser` for this CLI
+# exceeds that (`STATUS_STACK_OVERFLOW` / exit -1073741571). Other targets
+# already use a larger default.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:8388608"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:8388608"]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:8388608"]

@@ -1,7 +1,8 @@
 //! Deterministic workspace bootstrap for mature repositories.
 //!
 //! Creates docs scaffolds, optional `.rustbrainignore`, README-derived goals,
-//! and an AST module map — **without** inventing ADRs or calling cloud models.
+//! a thin `AGENTS.md` mandate, `SKILL.md` for agent harnesses, and an AST
+//! module map — **without** inventing ADRs or calling cloud models.
 
 use crate::error::{BrainError, Result};
 use crate::ignore::{recommended_ignore_extras, write_rustbrainignore};
@@ -42,10 +43,16 @@ pub struct BootstrapOptions {
     pub crate_docs: bool,
     /// Scaffold docs/ directory tree + templates.
     pub scaffold_docs: bool,
-    /// Write root `AGENTS.md` (agent cookbook for this repo). Default true when `None`.
+    /// Write/refresh root `AGENTS.md` (short rustbrain mandate). Default true when `None`.
+    ///
+    /// Custom (non-rustbrain) `AGENTS.md` is never overwritten: a short section is
+    /// appended instead.
     pub write_agents_md: Option<bool>,
     /// Optional path to a custom `AGENTS.md` template file (overrides discovery + built-in).
     pub agents_template: Option<PathBuf>,
+    /// Install `SKILL.md` into detected agent harnesses (or repo-root `SKILL.md`
+    /// if none). Default true when `None`.
+    pub write_skill_md: Option<bool>,
 }
 
 impl Default for BootstrapOptions {
@@ -63,6 +70,7 @@ impl Default for BootstrapOptions {
             scaffold_docs: true,
             write_agents_md: None,
             agents_template: None,
+            write_skill_md: None,
         }
     }
 }
@@ -103,7 +111,10 @@ const DOC_DIRS: &[&str] = &[
 ];
 
 /// Run deterministic bootstrap for `workspace`.
-pub fn bootstrap_workspace(workspace: &Path, mut opts: BootstrapOptions) -> Result<BootstrapReport> {
+pub fn bootstrap_workspace(
+    workspace: &Path,
+    mut opts: BootstrapOptions,
+) -> Result<BootstrapReport> {
     let workspace = if workspace.exists() {
         workspace.canonicalize()?
     } else {
@@ -156,7 +167,6 @@ pub fn bootstrap_workspace(workspace: &Path, mut opts: BootstrapOptions) -> Resu
         write_agents_md(
             &workspace,
             opts.write,
-            opts.force,
             opts.agents_template.as_deref(),
             &mut actions,
         )?;
@@ -165,6 +175,16 @@ pub fn bootstrap_workspace(workspace: &Path, mut opts: BootstrapOptions) -> Resu
             action: "skip".into(),
             path: "AGENTS.md".into(),
             detail: "disabled (--no-agents-md / write_agents_md=false)".into(),
+        });
+    }
+
+    if opts.write_skill_md.unwrap_or(true) {
+        write_skill_md(&workspace, opts.write, &mut actions)?;
+    } else {
+        actions.push(BootstrapAction {
+            action: "skip".into(),
+            path: "SKILL.md".into(),
+            detail: "disabled (--no-skill-md / write_skill_md=false)".into(),
         });
     }
 
@@ -202,7 +222,8 @@ pub fn bootstrap_workspace(workspace: &Path, mut opts: BootstrapOptions) -> Resu
         action: "next".into(),
         path: ".".into(),
         detail: if wrote {
-            "run `rustbrain sync` then `rustbrain doctor` (or `rustbrain setup --yes` next time)".into()
+            "run `rustbrain sync` then `rustbrain doctor` (or `rustbrain setup --yes` next time)"
+                .into()
         } else {
             "re-run with --write to apply".into()
         },
@@ -227,6 +248,9 @@ fn resolve_interactive(workspace: &Path, opts: &mut BootstrapOptions) -> Result<
         if opts.write_agents_md.is_none() {
             opts.write_agents_md = Some(true);
         }
+        if opts.write_skill_md.is_none() {
+            opts.write_skill_md = Some(true);
+        }
         return Ok(());
     }
 
@@ -241,6 +265,9 @@ fn resolve_interactive(workspace: &Path, opts: &mut BootstrapOptions) -> Result<
         if opts.write_agents_md.is_none() {
             opts.write_agents_md = Some(true);
         }
+        if opts.write_skill_md.is_none() {
+            opts.write_skill_md = Some(true);
+        }
         return Ok(());
     }
 
@@ -251,9 +278,7 @@ fn resolve_interactive(workspace: &Path, opts: &mut BootstrapOptions) -> Result<
         let has = workspace.join(".rustbrainignore").is_file();
         let def = if has { "n" } else { "Y" };
         let ans = prompt(
-            &format!(
-                "Create/update .rustbrainignore? [Y/n] (default {def})"
-            ),
+            &format!("Create/update .rustbrainignore? [Y/n] (default {def})"),
             def,
         )?;
         opts.setup_ignore = Some(ans_yes(&ans, !has));
@@ -296,7 +321,10 @@ fn resolve_interactive(workspace: &Path, opts: &mut BootstrapOptions) -> Result<
     if opts.harvest_readme {
         // already true; allow disable
         if workspace.join("README.md").is_file() {
-            let ans = prompt("Harvest README.md into docs/goals/from-readme.md? [Y/n]", "Y")?;
+            let ans = prompt(
+                "Harvest README.md into docs/goals/from-readme.md? [Y/n]",
+                "Y",
+            )?;
             opts.harvest_readme = ans_yes(&ans, true);
         }
     }
@@ -322,15 +350,11 @@ fn resolve_interactive(workspace: &Path, opts: &mut BootstrapOptions) -> Result<
     opts.scaffold_docs = ans_yes(&ans, true);
 
     if opts.write_agents_md.is_none() {
-        let has = workspace.join("AGENTS.md").is_file();
-        let def = if has { "n" } else { "Y" };
         let ans = prompt(
-            &format!(
-                "Write root AGENTS.md (agent cookbook for rustbrain)? [Y/n] (default {def})"
-            ),
-            def,
+            "Write/update root AGENTS.md (short rustbrain mandate; custom files get a section appended)? [Y/n]",
+            "Y",
         )?;
-        opts.write_agents_md = Some(ans_yes(&ans, !has));
+        opts.write_agents_md = Some(ans_yes(&ans, true));
     }
 
     if opts.write_agents_md == Some(true) && opts.agents_template.is_none() {
@@ -341,6 +365,14 @@ fn resolve_interactive(workspace: &Path, opts: &mut BootstrapOptions) -> Result<
         if !ans.trim().is_empty() {
             opts.agents_template = Some(PathBuf::from(ans.trim()));
         }
+    }
+
+    if opts.write_skill_md.is_none() {
+        let ans = prompt(
+            "Install rustbrain SKILL.md into detected agent harnesses (or repo-root SKILL.md if none)? [Y/n]",
+            "Y",
+        )?;
+        opts.write_skill_md = Some(ans_yes(&ans, true));
     }
 
     if !opts.write {
@@ -516,17 +548,13 @@ fn setup_ignore(
         actions.push(BootstrapAction {
             action: "create".into(),
             path: rel.into(),
-            detail: format!(
-                "ignore file (import_gitignore={import_gitignore}, extras={extras})"
-            ),
+            detail: format!("ignore file (import_gitignore={import_gitignore}, extras={extras})"),
         });
     } else {
         actions.push(BootstrapAction {
             action: "would_create".into(),
             path: rel.into(),
-            detail: format!(
-                "ignore file (import_gitignore={import_gitignore}, extras={extras})"
-            ),
+            detail: format!("ignore file (import_gitignore={import_gitignore}, extras={extras})"),
         });
     }
     Ok(())
@@ -548,8 +576,7 @@ fn harvest_crate_docs(
         return Ok(());
     }
     let deps = crate::crate_docs::collect_crate_deps(workspace)?;
-    let (n, details) =
-        crate::crate_docs::write_crate_docs_notes(workspace, &deps, write, force)?;
+    let (n, details) = crate::crate_docs::write_crate_docs_notes(workspace, &deps, write, force)?;
     for d in details {
         let (action, path) = if let Some(rest) = d.strip_prefix("write ") {
             ("create", rest)
@@ -1066,7 +1093,7 @@ Generated by `rustbrain bootstrap`. Tick items as you promote drafts into real k
 - [ ] Capture investigations as `analysis` notes under `docs/analysis/` (dated; optional recs → later ADR)
 - [ ] Capture roadmaps/tasklists under `docs/plans/` (`note new --type plan`)
 - [ ] Keep root `CHANGELOG.md` truthful when shipping (hub `changelog`)
-- [ ] Read / customize root `AGENTS.md` and `docs/AGENTS.md` for AI coding agents
+- [ ] Read / customize root `AGENTS.md`, `docs/AGENTS.md`, and `SKILL.md` (or `.<harness>/skills/rustbrain/SKILL.md`) for AI coding agents
 - [ ] Run `rustbrain sync`
 - [ ] Run `rustbrain doctor` and clear pending links
 - [ ] Optional: `rustbrain note new --type concept --title "…"` (scaffold, then edit the file)
@@ -1101,10 +1128,7 @@ pub fn resolve_agents_md_template(
             return Ok((text, format!("env:{}", p.display())));
         }
     }
-    for rel in [
-        ".rustbrain/AGENTS.template.md",
-        "AGENTS.template.md",
-    ] {
+    for rel in [".rustbrain/AGENTS.template.md", "AGENTS.template.md"] {
         let p = workspace.join(rel);
         if p.is_file() {
             let text = std::fs::read_to_string(&p)?;
@@ -1114,43 +1138,196 @@ pub fn resolve_agents_md_template(
     Ok((DEFAULT_AGENTS_MD.to_string(), "builtin".into()))
 }
 
+/// True when `AGENTS.md` was written by rustbrain (builtin or refreshed template).
+pub fn is_rustbrain_owned_agents_md(text: &str) -> bool {
+    text.contains("<!-- rustbrain-agents-md:")
+}
+
+/// True when a custom `AGENTS.md` already has the appended rustbrain section.
+pub fn has_rustbrain_agents_section(text: &str) -> bool {
+    text.contains("<!-- rustbrain-agents-section:")
+}
+
+/// True when a `SKILL.md` looks like the rustbrain skill (frontmatter `name: rustbrain`).
+pub fn is_rustbrain_skill_md(text: &str) -> bool {
+    text.lines().take(40).any(|l| l.trim() == "name: rustbrain")
+}
+
+/// Agent harness directories that load `skills/<name>/SKILL.md`.
+pub const AGENT_HARNESS_DIRS: &[&str] = &[
+    ".grok", ".claude", ".cursor", ".agents", ".codex", ".gemini", ".ai",
+];
+
+fn rel_display(workspace: &Path, abs: &Path) -> String {
+    abs.strip_prefix(workspace)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| abs.display().to_string())
+}
+
+fn write_text_file(
+    abs: &Path,
+    rel: &str,
+    content: &str,
+    write: bool,
+    action: &str,
+    detail: &str,
+    actions: &mut Vec<BootstrapAction>,
+) -> Result<()> {
+    if write {
+        if let Some(parent) = abs.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(abs, content)?;
+        actions.push(BootstrapAction {
+            action: action.into(),
+            path: rel.into(),
+            detail: detail.into(),
+        });
+    } else {
+        actions.push(BootstrapAction {
+            action: format!("would_{action}"),
+            path: rel.into(),
+            detail: detail.into(),
+        });
+    }
+    Ok(())
+}
+
 fn write_agents_md(
     workspace: &Path,
     write: bool,
-    force: bool,
     explicit_template: Option<&Path>,
     actions: &mut Vec<BootstrapAction>,
 ) -> Result<()> {
     let (content, source) = resolve_agents_md_template(workspace, explicit_template)?;
     let out = workspace.join("AGENTS.md");
-    // Prefer not clobbering a hand-edited AGENTS.md unless --force.
-    // If content is still the rustbrain-generated header, allow --force refresh.
-    if out.is_file() && !force {
-        actions.push(BootstrapAction {
-            action: "skip".into(),
-            path: "AGENTS.md".into(),
-            detail: format!("exists (use --force to overwrite; template source was {source})"),
-        });
+    if out.is_file() {
+        let existing = std::fs::read_to_string(&out)?;
+        if is_rustbrain_owned_agents_md(&existing) {
+            if existing == content {
+                actions.push(BootstrapAction {
+                    action: "skip".into(),
+                    path: "AGENTS.md".into(),
+                    detail: format!("rustbrain-owned, already current (template={source})"),
+                });
+                return Ok(());
+            }
+            write_text_file(
+                &out,
+                "AGENTS.md",
+                &content,
+                write,
+                "update",
+                &format!("refreshed rustbrain-owned mandate (template={source})"),
+                actions,
+            )?;
+            return Ok(());
+        }
+        if has_rustbrain_agents_section(&existing) {
+            actions.push(BootstrapAction {
+                action: "skip".into(),
+                path: "AGENTS.md".into(),
+                detail: "custom file already has rustbrain section".into(),
+            });
+            return Ok(());
+        }
+        let mut appended = existing;
+        if !appended.ends_with('\n') && !appended.is_empty() {
+            appended.push('\n');
+        }
+        appended.push('\n');
+        appended.push_str(AGENTS_MD_APPEND_SECTION);
+        if !appended.ends_with('\n') {
+            appended.push('\n');
+        }
+        write_text_file(
+            &out,
+            "AGENTS.md",
+            &appended,
+            write,
+            "update",
+            "appended rustbrain section (custom AGENTS.md never overwritten)",
+            actions,
+        )?;
         return Ok(());
     }
-    write_if_allowed(
+    write_text_file(
         &out,
         "AGENTS.md",
         &content,
         write,
-        force,
+        "create",
+        &format!("wrote file (template={source})"),
         actions,
-    )?;
-    if let Some(last) = actions.last_mut() {
-        if last.path == "AGENTS.md" && (last.action == "create" || last.action == "would_create" || last.action == "update") {
-            last.detail = format!("{} (template={source})", last.detail);
+    )
+}
+
+fn skill_md_destinations(workspace: &Path) -> Vec<PathBuf> {
+    let mut dests = Vec::new();
+    for dir in AGENT_HARNESS_DIRS {
+        let harness = workspace.join(dir);
+        if harness.is_dir() {
+            dests.push(harness.join("skills").join("rustbrain").join("SKILL.md"));
         }
+    }
+    if dests.is_empty() {
+        dests.push(workspace.join("SKILL.md"));
+    }
+    dests
+}
+
+fn write_skill_md(workspace: &Path, write: bool, actions: &mut Vec<BootstrapAction>) -> Result<()> {
+    let content = crate::skill_template::default_skill_md_template();
+    for dest in skill_md_destinations(workspace) {
+        let rel = rel_display(workspace, &dest);
+        if dest.is_file() {
+            let existing = std::fs::read_to_string(&dest)?;
+            if !is_rustbrain_skill_md(&existing) {
+                actions.push(BootstrapAction {
+                    action: "skip".into(),
+                    path: rel,
+                    detail: "exists and is not the rustbrain skill (name: rustbrain)".into(),
+                });
+                continue;
+            }
+            if existing == content {
+                actions.push(BootstrapAction {
+                    action: "skip".into(),
+                    path: rel,
+                    detail: "rustbrain skill already current".into(),
+                });
+                continue;
+            }
+            write_text_file(
+                &dest,
+                &rel,
+                content,
+                write,
+                "update",
+                "refreshed rustbrain skill",
+                actions,
+            )?;
+            continue;
+        }
+        write_text_file(
+            &dest,
+            &rel,
+            content,
+            write,
+            "create",
+            "wrote rustbrain skill",
+            actions,
+        )?;
     }
     Ok(())
 }
 
 /// Convenience used by CLI tests / agents: non-interactive write bootstrap.
-pub fn bootstrap_noninteractive(workspace: &Path, write: bool, force: bool) -> Result<BootstrapReport> {
+pub fn bootstrap_noninteractive(
+    workspace: &Path,
+    write: bool,
+    force: bool,
+) -> Result<BootstrapReport> {
     bootstrap_workspace(
         workspace,
         BootstrapOptions {
@@ -1166,14 +1343,18 @@ pub fn bootstrap_noninteractive(workspace: &Path, write: bool, force: bool) -> R
             scaffold_docs: true,
             write_agents_md: Some(true),
             agents_template: None,
+            write_skill_md: Some(true),
         },
     )
 }
 
 const DEFAULT_AGENTS_MD: &str = r#"<!-- rustbrain-agents-md: generated by `rustbrain bootstrap` / `rustbrain setup`.
-     Edit freely. Re-run with --force to replace from the template.
-     Customize: AGENTS.template.md | .rustbrain/AGENTS.template.md
-     | --agents-template PATH | RUSTBRAIN_AGENTS_TEMPLATE=PATH
+     This file is rustbrain-owned and is refreshed on bootstrap.
+     Hand-written AGENTS.md: remove this header so bootstrap appends a section
+     instead of replacing the file. Custom files are never overwritten (`--force`
+     included). Customize new/owned files: AGENTS.template.md |
+     .rustbrain/AGENTS.template.md | --agents-template PATH |
+     RUSTBRAIN_AGENTS_TEMPLATE=PATH
      Skip: rustbrain bootstrap --no-agents-md  /  setup --no-agents-md
 -->
 # AGENTS.md — working in this repository
@@ -1182,358 +1363,37 @@ This project uses **[rustbrain](https://github.com/shan-alexander/rustbrain)**: 
 
 Ensure the CLI is on `PATH` (`export PATH="$HOME/.cargo/bin:$PATH"` after `cargo install rustbrain`).
 
----
-
-## First time
-
-| Command | What it does | What to expect |
-|---------|----------------|----------------|
-| `rustbrain setup --yes` | init + bootstrap + sync + doctor | Creates `.brain/`, `docs/`, `.rustbrainignore`, **`AGENTS.md`**, README harvest, **crate → docs.rs notes**, AST module map, then indexes |
-| `rustbrain setup --yes --no-crate-docs` | skip docs.rs harvest | No `docs/references/crates/*` |
-| `rustbrain setup --yes --no-agents-md` | same, skip this file | No `AGENTS.md` write |
-| `rustbrain setup --yes --agents-template PATH` | use custom AGENTS body | Your template becomes root `AGENTS.md` |
-| `rustbrain setup --yes --force` | overwrite generated bootstrap files | Regenerates `from-readme`, module-map, ignore, **and** `AGENTS.md` if present |
-| `rustbrain setup --yes --no-bootstrap` | init + sync only | No docs scaffold |
-| `rustbrain setup --yes --no-doctor` | skip final health print | Still syncs |
-
-Step-by-step equivalent:
+Before claiming decisions, status, or history, and before large edits, **orient with rustbrain** (do not invent ADRs or changelog entries):
 
 ```bash
-rustbrain init
-rustbrain bootstrap --yes --write
-rustbrain sync
-rustbrain doctor
+rustbrain context "why <decision> / how <feature> works / what shipped"
+rustbrain query "<topic>" --scores
+rustbrain sync    # after you edit docs, notes, or indexed code
 ```
 
-**Empty / thin README:** bootstrap still succeeds. `from-readme` is skipped (no README) or thin (scrappy README). `doctor` reports `no_readme` / `sparse_readme` / `scaffold_only` as **info** — not failures. Fill knowledge with notes, not invented history.
+Create notes with `rustbrain note new --type adr|goal|concept|analysis|plan --title "…"` (scaffold, then edit the file, then `sync`).
 
----
-
-## Everyday loop
-
-```bash
-rustbrain context "why <decision> / how does <feature> work"   # orient (content pack)
-rustbrain context "what shipped" / "changelog 0.3"             # CHANGELOG hub when present
-rustbrain context "roadmap priorities"                         # ROADMAP/BACKLOG hubs if present
-rustbrain graph docs/adr/….md                                  # inspect who links where
-rustbrain query "topic" --scores                               # search notes
-# preferred note creation — see below (scaffold, then edit)
-rustbrain note new --type adr --title "…"
-# then edit the printed path; sync if you used --no-sync
-rustbrain sync && rustbrain doctor && rustbrain links
-```
-
----
-
-## Multi-brain (optional — multi-crate / umbrella workspaces)
-
-**Default is single-brain.** Only enable multi when you need SubBrains.
-
-### Discovering ids (agents: run these *before* import/attach)
-
-| What you need | Command | What it prints |
-|---------------|---------|----------------|
-| **SubBrain ids in *this* workspace** | `rustbrain scopes list` | `mode`, `main`, each SubBrain **id**, roots, node counts |
-| Machine-readable ids | `rustbrain scopes list --json` | `manifest.scopes[].id` + `counts` |
-| Ids in **another** path | `rustbrain scopes list -w /path/to/other` | Same, for that tree (if it already has multi-brain) |
-| Cargo package → candidate SubBrain id | `rustbrain scopes enable --cargo` then `scopes list` | Path-stable ids (e.g. `rustbrain-cli`); package name may appear as **alias** |
-| **Pick an id for a folder you will import** | You **choose** it: use the directory name | e.g. `./project-a` → `--as project-a` or `attach project-a --root project-a` (sanitize: lowercase, `-` not `_`) |
-| Node ids (notes/symbols) | `rustbrain query "…" --scores` / `graph <path>` | Node `id:` lines; hubs: `readme`, `changelog`, `roadmap`, `backlog` |
-
-**Rule:** SubBrain **id** is not auto-discovered from a foreign single-brain until you **name** it (`--as` / `attach <id>`). Prefer the folder name. Confirm with `scopes list` after attach/import.
-
-```bash
-# 1) See current mode + ids
-rustbrain scopes list
-rustbrain scopes list --json
-
-# 2) Enable multi (Cargo monorepo)
-rustbrain scopes enable --cargo && rustbrain scopes list
-
-# 3) Umbrella: three former mono-repos under one folder
-rustbrain scopes enable --empty
-rustbrain scopes attach project-a --root project-a          # id = project-a (you chose it)
-rustbrain scopes import --from ./project-b --as project-b --mount
-rustbrain scopes import --from ./project-c --as project-c --mount
-rustbrain scopes reconcile
-rustbrain scopes list                                        # confirm ids + node counts
-
-# 4) Query / share using the id from `scopes list`
-rustbrain query "topic" --scope project-a                    # hubs-only MainBrain mix
-rustbrain query "topic" --scope project-a --scope-strict
-rustbrain query "topic" --scope project-a --scope-with-main
-rustbrain export --out a.brainbundle --scope project-a       # share SubBrain without merge
-# Keep separate: import --as id · Merge into MainBrain: import --into main
-# Fold SubBrain into main: scopes absorb project-a
-```
-
-Nested `project-a/.brain` may still exist for working inside that tree alone. The umbrella MainBrain owns path scopes after attach/mount.
-
----
-
-## CLI reference (variations)
-
-### `setup` / `bootstrap` / `init` / `sync`
-
-| Command | Use when | Expect |
-|---------|----------|--------|
-| `setup --yes` | Cold start / CI / agents | Full scaffold + index; prefer this over multi-step |
-| `bootstrap --yes --write` | Scaffold only (already have `.brain`) | Files under `docs/`, optional harvest; **no** full re-think of ADRs |
-| `bootstrap --dry-run` | See plan | Prints actions; writes nothing |
-| `bootstrap --yes --write --no-agents-md` | Scaffold without cookbook | No `AGENTS.md` |
-| `bootstrap --yes --write --agents-template ./AGENTS.template.md` | Org template | Copies that file to `AGENTS.md` |
-| `init` | Empty store only | `.brain/db.sqlite`; does **not** create docs or index |
-| `sync` | After Markdown/code changes | Re-index; content-hash skips unchanged files; `file_errors=N` if some files fail |
-| `sync` from a subdirectory | CWD anywhere under the repo | Prefer `rustbrain sync -w /repo` or run from root; open walks parents for query/context/doctor |
-
-### `doctor`
-
-| Command | Expect |
-|---------|--------|
-| `rustbrain doctor` | Text health: db/mmap/counts + **info** findings (sparse README, scaffold-only, template ADR, pending links, …) |
-| `rustbrain doctor --json` | Same as JSON for tools |
-| `rustbrain doctor --strict` | Exit **1** if unhealthy **or** any pending links |
-
-Doctor walks parent dirs for `.brain` (like git). **Info ≠ broken** — e.g. `scaffold_only` means “few real notes yet”, not corrupt DB.
-
-### `query` (search)
-
-Default is **note-first** (goals/ADRs/concepts; symbols excluded).
-
-| Command | Expect |
-|---------|--------|
-| `query "duckdb"` | Ranked notes; may hit README hub / from-readme / ADRs |
-| `query "duckdb" --scores` | Same + numeric scores + reasons |
-| `query "open" --with-symbols` | Include code symbols (methods, types) |
-| `query "x" --all-types` | All node types (alias of with-symbols for type filters cleared) |
-| `query "x" --type goal,adr,concept` | Only those types |
-| `query "x" -n 10` | Cap results |
-| `query "x" --all-workspaces` | Merge across registered local workspaces |
-| `query "x" -w /path/to/repo` | Explicit workspace |
-| `query "x" --scope ID` | Multi-brain: SubBrain + hub nodes only (default) |
-| `query "x" --scope ID --scope-strict` | SubBrain only |
-| `query "x" --scope ID --scope-with-main` | SubBrain + all MainBrain nodes |
-| `query "status:in_progress" --type plan` | Plan densify tokens after sync |
-
-Natural language: stopwords dropped; multi-token uses OR (`why egui not tauri` → egui OR tauri). **Garbage-in:** thin README → thin hits. Empty results print a hint (`--with-symbols` or sync). Learn SubBrain **ID** via `scopes list` first.
-
-### `context` (agent pack)
-
-Builds FTS seeds + optional graph hops under a token budget. Default format: **markdown**.
-
-| Command | Expect |
-|---------|--------|
-| `context "why egui not tauri"` | Seeds notes; packs **body excerpts** (not titles only); stopword-aware |
-| `context "summarize architecture"` | If FTS is weak/generic, **hub fallback** (README / harvest / module map) |
-| `context "topic" -F xml` | XML-escaped for tool protocols |
-| `context "topic" -m 800` | Smaller token budget |
-| `context "topic" --hops 0` | Seeds only (no graph neighbors) |
-| `context "topic" --hops 2` | Deeper graph (noisier) |
-| `context "topic" --with-symbols` | Allow symbols as FTS seeds |
-| `context "topic" --no-hop-symbols` | Never pack symbol neighbors |
-| `context "topic" --type adr,goal` | Seed type filter |
-| `context "topic" -p "…"` | Same as positional prompt |
-| `context "topic" --scope ID` | Scoped seeds (hubs-only Main mix); neighbors may hop out |
-| `context "topic" --scope ID --scope-strict` | Strict SubBrain seeds |
-| `context` from `src/` | Finds parent `.brain` automatically |
-
-Packing prefers **seeds and ADRs/goals** over symbol noise; skips ADR `TEMPLATE`; dedupes README vs from-readme; strips YAML frontmatter from excerpts.
-
-### `scopes` (MainBrain / SubBrain)
-
-| Command | Expect |
-|---------|--------|
-| `scopes list` | **Primary way to learn ids** — mode, main, SubBrain ids, roots, node counts |
-| `scopes list --json` | Same for tools (`manifest.scopes[].id`) |
-| `scopes detect PATH` | Suggest id + mount tips **before** import/attach |
-| `scopes list -w /other` | Inspect another workspace path |
-| `scopes enable --cargo` | multi + Cargo members as SubBrains; then `sync` |
-| `scopes enable --empty` | multi with no SubBrains yet |
-| `scopes add ID --root PATH` | Add/update SubBrain root(s) |
-| `scopes attach ID --root PATH` | Umbrella: existing dir as SubBrain (no copy) |
-| `scopes import --from PATH --as ID` | Copy notes → separate SubBrain |
-| `scopes import --from PATH --as ID --mount` | Source under this tree → attach path, no copy |
-| `scopes import --from PATH --into main` | **Merge** copy into MainBrain |
-| `scopes absorb ID` | SubBrain nodes → main; drop SubBrain def |
-| `scopes absorb all` | Everything → main; mode=single |
-| `scopes remove ID [--absorb]` | Drop def (prefer `--absorb`) |
-| `scopes reconcile` | Recompute all node scopes from manifest |
-| `scopes disable [--absorb-all]` | Back to single mode |
-
-### `graph` (structure inspect)
-
-Shows **who links to whom** (ASCII tree or JSON). Use when you need edge types/weights, not a full content pack.
-
-| Command | Expect |
-|---------|--------|
-| `graph` | Workspace stats: by type, by relation, hubs |
-| `graph docs/concepts/raft.md` | 1-hop neighborhood of that note |
-| `graph "Raft" --hops 2` | Deeper tree (title resolve when unique) |
-| `graph symbol:StorageEngine` | Symbol-centered neighborhood |
-| `graph docs/x.md --no-auto --no-symbols` | Explicit note links only |
-| `graph docs/x.md --direction out` | Outgoing edges only |
-| `graph docs/x.md --json` | Machine-readable for tools |
-
-### `links --apply` (safe Markdown rewrites)
-
-| Command | Expect |
-|---------|--------|
-| `links --apply --dry-run` | Plan unique pending WikiLink normalizations (no writes) |
-| `links --apply --write` | Apply AUTO edits atomically; auto-sync refreshes pending/edges |
-| `links --apply --discover --dry-run` | + Aho–Corasick unmarked mentions (suggest/auto tiers) |
-| `links --apply --discover --write --style related` | Append under `## Related` instead of wrapping prose |
-| `links --apply --write --json` | Full report for agents |
-
-Never invents notes. Ambiguous / unresolved / generated files are skipped unless `--force`.
-
-
-### `note new` (preferred agent workflow)
-
-**Preferred usage (better agentic outcomes):** create with **type + title only**, leave the
-body empty so rustbrain writes a **type-specific scaffold**, then **edit that file**.
-
-```bash
-# 1) Scaffold (omit --body / --note)
-rustbrain note new --type analysis --title "criterion query-path 2026-07-31"
-#    → writes docs/analysis/….md with Question / Findings / Artifacts / Recommendations / …
-#    → prints path; auto-syncs so the empty scaffold is indexed
-
-# 2) Edit the file on disk (fill sections, add symbol:… and [[WikiLinks]])
-#    e.g. open the path printed by note new
-
-# 3) Re-index after the edit
-rustbrain sync
-```
-
-Same pattern for other types:
-
-```bash
-rustbrain note new --type goal --title "Use rustbrain well"
-rustbrain note new --type adr --title "Use duckdb CLI not libduckdb"
-rustbrain note new --type concept --title "CSR mmap cache"
-rustbrain note new --type edge_case --title "NixOS EGL_BAD_PARAMETER"
-```
-
-| Command | Expect |
-|---------|--------|
-| `note new --type T --title "T"` | **Preferred** — scaffold body for `adr` / `goal` / `analysis`; path printed; syncs |
-| `note new --type T --title "T" --body "…"` | Fills body immediately (skips scaffold). Use when the whole text is ready |
-| `note new --type T --title "T" --note "…"` | Same as `--body` (synonym) |
-| `note new … --tags a,b --aliases x` | Frontmatter tags/aliases |
-| `note new … --no-sync` | Write only; `sync` after you edit |
-| `note new … --force` | Overwrite existing path |
-| `note new … --scope ID` | Multi-brain: write under that SubBrain’s tree |
-| `note new … -w /repo` | Explicit workspace |
-
-Types: `goal`, `adr`, `alternative`, `concept`, `analysis`, `plan`, `changelog`, `reference`, `edge_case`.
-- **concept** — timeless “what is X”
-- **analysis** — dated investigation (crate compare, design options, `cargo bench` / criterion review, data digests); recommendations optional; promote decisions to **adr**
-- **plan** — roadmaps, backlogs, tasklists, todos (`docs/plans/`; aliases: roadmap, backlog, todo)
-- **changelog** — release notes (prefer root **CHANGELOG.md** hub; type `changelog`)
-- **adr** — we chose X
-- **edge_case** — a specific trap
-
-Link **notes → code** with `symbol:Type::method` (or `[[symbol:…]]`).
-Link **code → notes** in rustdoc: `/// See [[docs/adr/my-adr]]` (sync creates `doc_links` edges).
-
-### `links` / `watch` / `export` / `import`
-
-| Command | Expect |
-|---------|--------|
-| `links` | Unresolved WikiLinks / `symbol:` targets |
-| `links --json` | Machine-readable |
-| `links --auto` | Soft `auto_*` edges (no Markdown rewrite) |
-| `links --apply --dry-run` / `--write` | Pending WikiLink normalize (see above) |
-| `watch` | Debounced re-sync on file changes (Ctrl-C to stop) |
-| `watch --debounce-ms 500` | Slower debounce |
-| `export --out x.brainbundle` | Portable JSON graph (AST optionally decoupled) |
-| `export --out x.brainbundle --scope ID` | Share **one SubBrain** (+ hubs) without full merge |
-| `import --input x.brainbundle` | Merge bundle into this brain + remmap |
-
-Full flag book: repo `docs/CLI.md` or `rustbrain <cmd> --help`.
-
----
-
-## Where knowledge lives
-
-| Path | Purpose |
-|------|---------|
-| `README.md` | Hub node `readme` (quality of harvest depends on this) |
-| **`CHANGELOG.md`** | Hub **`changelog`**, type **`changelog`** — Keep a Changelog + SemVer. Ground truth for "what shipped" |
-| `ROADMAP.md` / `BACKLOG.md` (optional) | Hubs `roadmap` / `backlog`, type **`plan`** |
-| `docs/plans/` | Hand-written plans / roadmaps / tasklists (`note new --type plan`) |
-| `docs/AGENTS.md` | **Mandatory** docs-local agent protocol: use rustbrain every turn |
-| `docs/goals/from-readme.md` | **Algorithmic** harvest of README sections (not an LLM) |
-| `docs/goals/`, `docs/adr/`, `docs/analysis/`, … | Hand-written project knowledge |
-| `docs/analysis/` | Dated investigations (`note new --type analysis`) — good for epic digests |
-| `docs/implementation/module-map.generated.md` | AST symbol list |
-| `docs/references/crates/*.md` | **docs.rs** URLs for Cargo.toml deps (generated on setup/bootstrap) |
-| `docs/references/crate-docs.generated.md` | Index of all harvested crate docs |
-| `AGENTS.md` | This file — agent ops for *this* repo |
-| `.brain/` | Local index — **never commit** |
-| `.rustbrainignore` | Extra index skips |
-
-### CHANGELOG (Rust community standard)
-
-If this repo publishes a crate (or you want ship history for agents):
-
-1. Keep a root **`CHANGELOG.md`** in [Keep a Changelog](https://keepachangelog.com/) form (`## [x.y.z] - YYYY-MM-DD`, `## [Unreleased]`).
-2. Run **`rustbrain sync`** after edits — maps to stable id **`changelog`**, type **`changelog`**, aliases versions / "releases" / "unreleased"; boosts release-oriented `query` / `context`.
-3. Prefer **truthful ship notes** over inventing history. Agents: `rustbrain context "what changed in 0.3"` / `query changelog --scores`.
-
-Doctor reports `no_changelog` (info) when a `Cargo.toml` exists but no CHANGELOG; `changelog_latest` when the hub is healthy.
-
-Also read **`docs/AGENTS.md`** — mandates rustbrain tooling on every agent turn when working in docs/.
-
-### HITL planning (roadmaps, epics, status)
-
-| Need | Where it lives | rustbrain type / hub |
-|------|----------------|----------------------|
-| Shipped / versioned history | `CHANGELOG.md` | type `changelog`, hub `changelog` |
-| Future direction | `ROADMAP.md` or `docs/plans/` | type `plan`, hub `roadmap` |
-| Unordered work queue | `BACKLOG.md` or `docs/plans/` | type `plan`, hub `backlog` |
-| Time-bound dig / epic write-up | `docs/analysis/` | `analysis` |
-| Decision | `docs/adr/` | `adr` |
-| Status of a slice | plan checklist or analysis + WikiLinks | do **not** invent kanban columns |
-
-Query: `context "roadmap priorities"`, `context "what shipped"`, `graph changelog`.
-
----
-
-## Conventions
-
-- **Create notes with scaffold, then edit:** prefer  
-  `rustbrain note new --type "…" --title "…"` **without** `--body`/`--note`,  
-  then edit the created file, then `rustbrain sync`. Passing a full body skips the
-  type template and often produces thinner structure.
-- Prefer short factual ADRs over chat logs.
-- **Changelog is ground truth for releases** — update it when you ship; never invent entries.
-- Link notes→code: `symbol:Name` / `symbol:crate::mod::Name` / `[[symbol:…]]`.
-- Link code→notes in rustdoc: `/// See [[docs/adr/…]]` (becomes `doc_links` on sync).
-- Frontmatter when useful:
-
-  ```yaml
-  ---
-  tags: [topic]
-  node_type: adr
-  aliases: [short-name]
-  ---
-  ```
-
-- Do **not** invent ADR history. Do **not** commit `.brain/`.
-- After improving README: `rustbrain bootstrap --yes --write --force && rustbrain sync`.
-- After updating CHANGELOG: `rustbrain sync` (no harvest needed).
-
----
-
-## Full help
+The full agent cookbook (CLI flags, bootstrap, multi-brain) lives in **SKILL.md** — either at the repo root or at `.<harness>/skills/rustbrain/SKILL.md` after bootstrap detects `.grok/`, `.claude/`, `.cursor/`, `.agents/`, `.codex/`, `.gemini/`, or `.ai/`.
 
 ```bash
 rustbrain --help
-rustbrain <command> --help
+```
+"#;
+
+/// Section appended to a *custom* root `AGENTS.md` (idempotent via the HTML markers).
+const AGENTS_MD_APPEND_SECTION: &str = r#"<!-- rustbrain-agents-section: start -->
+## rustbrain
+
+This project uses **[rustbrain](https://github.com/shan-alexander/rustbrain)**. Before claiming decisions, status, or history:
+
+```bash
+rustbrain context "why <decision> / how <feature> works"
+rustbrain query "<topic>" --scores
+rustbrain sync
 ```
 
-Upstream CLI book: rustbrain repo `docs/CLI.md`.
+Cookbook: `SKILL.md` or `.<harness>/skills/rustbrain/SKILL.md` (installed by `rustbrain bootstrap` when `.grok/`, `.claude/`, `.cursor/`, `.agents/`, `.codex/`, `.gemini/`, or `.ai/` exists).
+<!-- rustbrain-agents-section: end -->
 "#;
 
 /// Ensure `.brain/` is listed in the workspace `.gitignore` (create file if needed).
@@ -1577,10 +1437,7 @@ fn ensure_gitignore_brain(
             });
         }
     } else if write {
-        std::fs::write(
-            &gi,
-            "# rustbrain local index\n.brain/\n",
-        )?;
+        std::fs::write(&gi, "# rustbrain local index\n.brain/\n")?;
         actions.push(BootstrapAction {
             action: "create".into(),
             path: ".gitignore".into(),
@@ -1631,15 +1488,33 @@ mod tests {
             agents.contains("rustbrain"),
             "AGENTS.md should mention rustbrain"
         );
-        assert!(agents.contains("rustbrain context") || agents.contains("setup --yes"));
+        assert!(
+            is_rustbrain_owned_agents_md(&agents),
+            "fresh AGENTS.md should be rustbrain-owned"
+        );
+        assert!(
+            agents.contains("rustbrain context") && agents.contains("SKILL.md"),
+            "thin AGENTS.md should mandate context and point at SKILL.md"
+        );
+        assert!(
+            !agents.contains("## First time"),
+            "thin AGENTS.md must not contain the old CLI cookbook"
+        );
+        let skill = std::fs::read_to_string(dir.path().join("SKILL.md")).unwrap();
+        assert!(
+            is_rustbrain_skill_md(&skill),
+            "no harness dir → root SKILL.md"
+        );
         let docs_agents = std::fs::read_to_string(dir.path().join("docs/AGENTS.md")).unwrap();
         assert!(
-            docs_agents.contains("Every agent turn")
-                && docs_agents.contains("rustbrain context"),
+            docs_agents.contains("Every agent turn") && docs_agents.contains("rustbrain context"),
             "docs/AGENTS.md must mandate rustbrain every turn"
         );
         let gi = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-        assert!(gi.contains(".brain/"), "expected .brain/ in gitignore: {gi}");
+        assert!(
+            gi.contains(".brain/"),
+            "expected .brain/ in gitignore: {gi}"
+        );
         #[cfg(feature = "ast")]
         assert!(dir
             .path()
@@ -1665,10 +1540,12 @@ mod tests {
                 scaffold_docs: true,
                 write_agents_md: Some(false),
                 agents_template: None,
+                write_skill_md: Some(false),
             },
         )
         .unwrap();
         assert!(!dir.path().join("AGENTS.md").exists());
+        assert!(!dir.path().join("SKILL.md").exists());
     }
 
     #[test]
@@ -1691,6 +1568,7 @@ mod tests {
                 scaffold_docs: false,
                 write_agents_md: Some(true),
                 agents_template: Some(tpl),
+                write_skill_md: Some(false),
             },
         )
         .unwrap();
@@ -1721,10 +1599,148 @@ mod tests {
                 scaffold_docs: false,
                 write_agents_md: Some(true),
                 agents_template: None,
+                write_skill_md: Some(false),
             },
         )
         .unwrap();
         let agents = std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
         assert!(agents.contains("From workspace template"));
+    }
+
+    fn agents_skill_opts(
+        write_agents: bool,
+        write_skill: bool,
+        force: bool,
+        template: Option<PathBuf>,
+    ) -> BootstrapOptions {
+        BootstrapOptions {
+            mode: BootstrapMode::NonInteractive,
+            write: true,
+            force,
+            setup_ignore: Some(false),
+            import_gitignore: Some(false),
+            ignore_extras: false,
+            harvest_readme: false,
+            module_map: false,
+            crate_docs: false,
+            scaffold_docs: false,
+            write_agents_md: Some(write_agents),
+            agents_template: template,
+            write_skill_md: Some(write_skill),
+        }
+    }
+
+    #[test]
+    fn bootstrap_appends_section_to_custom_agents_md_even_with_force() {
+        let dir = tempdir().unwrap();
+        let custom = "# Host rules\n\nDo not clobber me.\n";
+        std::fs::write(dir.path().join("AGENTS.md"), custom).unwrap();
+        let report =
+            bootstrap_workspace(dir.path(), agents_skill_opts(true, false, true, None)).unwrap();
+        let agents = std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+        assert!(
+            agents.contains("Do not clobber me"),
+            "custom body kept: {agents}"
+        );
+        assert!(
+            has_rustbrain_agents_section(&agents),
+            "section appended: {agents}"
+        );
+        assert!(!is_rustbrain_owned_agents_md(&agents));
+        assert!(
+            report
+                .actions
+                .iter()
+                .any(|a| a.path == "AGENTS.md" && a.action == "update"),
+            "expected append update: {:?}",
+            report.actions
+        );
+
+        bootstrap_workspace(dir.path(), agents_skill_opts(true, false, true, None)).unwrap();
+        let again = std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+        assert_eq!(
+            again
+                .matches("<!-- rustbrain-agents-section: start -->")
+                .count(),
+            1,
+            "append is idempotent: {again}"
+        );
+    }
+
+    #[test]
+    fn bootstrap_refreshes_rustbrain_owned_agents_md() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "<!-- rustbrain-agents-md: generated by old fat cookbook -->\n# stale\n",
+        )
+        .unwrap();
+        bootstrap_workspace(dir.path(), agents_skill_opts(true, false, false, None)).unwrap();
+        let agents = std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+        assert!(is_rustbrain_owned_agents_md(&agents));
+        assert!(agents.contains("SKILL.md"));
+        assert!(!agents.contains("stale"));
+    }
+
+    #[test]
+    fn bootstrap_installs_skill_into_every_detected_harness() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".grok")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        bootstrap_workspace(dir.path(), agents_skill_opts(false, true, false, None)).unwrap();
+        let grok = dir.path().join(".grok/skills/rustbrain/SKILL.md");
+        let claude = dir.path().join(".claude/skills/rustbrain/SKILL.md");
+        assert!(grok.is_file(), "missing {grok:?}");
+        assert!(claude.is_file(), "missing {claude:?}");
+        assert!(
+            !dir.path().join("SKILL.md").exists(),
+            "root SKILL.md only when no harness"
+        );
+        assert!(is_rustbrain_skill_md(
+            &std::fs::read_to_string(&grok).unwrap()
+        ));
+    }
+
+    #[test]
+    fn bootstrap_skips_foreign_skill_md() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".cursor/skills/rustbrain")).unwrap();
+        let dest = dir.path().join(".cursor/skills/rustbrain/SKILL.md");
+        std::fs::write(&dest, "---\nname: something-else\n---\n# Hands off\n").unwrap();
+        bootstrap_workspace(dir.path(), agents_skill_opts(false, true, true, None)).unwrap();
+        let got = std::fs::read_to_string(&dest).unwrap();
+        assert!(
+            got.contains("Hands off"),
+            "foreign skill must not be replaced: {got}"
+        );
+        assert!(!is_rustbrain_skill_md(&got));
+    }
+
+    #[test]
+    fn bootstrap_refreshes_rustbrain_skill_md() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".grok/skills/rustbrain")).unwrap();
+        let dest = dir.path().join(".grok/skills/rustbrain/SKILL.md");
+        std::fs::write(&dest, "---\nname: rustbrain\n---\n# stale skill\n").unwrap();
+        bootstrap_workspace(dir.path(), agents_skill_opts(false, true, false, None)).unwrap();
+        let got = std::fs::read_to_string(&dest).unwrap();
+        assert!(is_rustbrain_skill_md(&got));
+        assert!(!got.contains("stale skill"));
+        assert!(got.contains("inject and persist project memory") || got.contains("rustbrain"));
+    }
+
+    #[test]
+    fn embedded_skill_matches_repo_root_when_present() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../SKILL.md");
+        if root.is_file() {
+            let disk = std::fs::read_to_string(&root)
+                .unwrap()
+                .replace("\r\n", "\n");
+            let embedded = crate::default_skill_md_template().replace("\r\n", "\n");
+            assert_eq!(
+                disk, embedded,
+                "repo-root SKILL.md must match crates/rustbrain-core/src/templates/SKILL.md"
+            );
+        }
     }
 }

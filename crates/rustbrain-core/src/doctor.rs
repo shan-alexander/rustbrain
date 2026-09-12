@@ -226,7 +226,9 @@ pub fn run_doctor_with(workspace: &Path, opts: &DoctorOptions) -> Result<DoctorR
     assess_changelog(&workspace, &db, &mut findings)?;
     assess_knowledge_density(&workspace, &db, note_count, symbol_count, &mut findings)?;
 
-    let has_goal = by_type.iter().any(|(t, c)| t == NodeType::Goal.as_str() && *c > 0);
+    let has_goal = by_type
+        .iter()
+        .any(|(t, c)| t == NodeType::Goal.as_str() && *c > 0);
     if nodes > 0 && !has_goal {
         findings.push(DoctorFinding {
             severity: DoctorSeverity::Info,
@@ -261,7 +263,7 @@ pub fn run_doctor_with(workspace: &Path, opts: &DoctorOptions) -> Result<DoctorR
         findings.push(DoctorFinding {
             severity: DoctorSeverity::Info,
             code: "no_agents_md".into(),
-            message: "no AGENTS.md — `rustbrain bootstrap --yes --write` can add the agent cookbook (or --no-agents-md to skip intentionally)"
+            message: "no AGENTS.md — `rustbrain bootstrap --yes --write` can add a short rustbrain mandate (or --no-agents-md to skip intentionally)"
                 .into(),
         });
     }
@@ -286,9 +288,7 @@ pub fn run_doctor_with(workspace: &Path, opts: &DoctorOptions) -> Result<DoctorR
         vec![]
     };
 
-    let healthy = !findings
-        .iter()
-        .any(|f| f.severity == DoctorSeverity::Error);
+    let healthy = !findings.iter().any(|f| f.severity == DoctorSeverity::Error);
 
     // "ok" only when nothing else to report (knowledge infos replace a bare ok).
     if healthy && findings.is_empty() {
@@ -428,11 +428,7 @@ fn assess_readme_and_harvest(
 }
 
 /// MainBrain / SubBrain health (info/warn; never invents scopes).
-fn assess_scopes(
-    workspace: &Path,
-    db: &Database,
-    findings: &mut Vec<DoctorFinding>,
-) -> Result<()> {
+fn assess_scopes(workspace: &Path, db: &Database, findings: &mut Vec<DoctorFinding>) -> Result<()> {
     let m = crate::scopes::load_manifest(workspace)?;
     let counts = crate::scopes::count_nodes_by_scope(db)?;
     let known: std::collections::BTreeSet<String> = m.all_scope_ids().into_iter().collect();
@@ -699,7 +695,10 @@ impl DoctorReport {
     /// Render a human-readable multi-line report.
     pub fn to_text(&self) -> String {
         let mut out = String::new();
-        out.push_str(&format!("rustbrain doctor — {}\n", self.workspace.display()));
+        out.push_str(&format!(
+            "rustbrain doctor — {}\n",
+            self.workspace.display()
+        ));
         out.push_str(&format!(
             "  db: {}  mmap: {}  schema: {}\n",
             if self.db_exists { "yes" } else { "NO" },
@@ -736,7 +735,9 @@ impl DoctorReport {
             out.push_str(&format!("  [{tag}] {}: {}\n", f.code, f.message));
         }
         if !self.orphan_details.is_empty() {
-            out.push_str("\norphan notes (no explicit WikiLink/symbol edges; auto-links ignored):\n");
+            out.push_str(
+                "\norphan notes (no explicit WikiLink/symbol edges; auto-links ignored):\n",
+            );
             for o in &self.orphan_details {
                 let path = o.file_path.as_deref().unwrap_or("-");
                 out.push_str(&format!(
@@ -744,7 +745,9 @@ impl DoctorReport {
                     o.node_type, o.title, o.id, path
                 ));
                 if o.suggestions.is_empty() {
-                    out.push_str("    suggestions: (none — add tags, matching filenames, or WikiLinks)\n");
+                    out.push_str(
+                        "    suggestions: (none — add tags, matching filenames, or WikiLinks)\n",
+                    );
                 } else {
                     out.push_str("    suggestions:\n");
                     for s in o.suggestions.iter().take(8) {
@@ -806,7 +809,13 @@ mod tests {
         let report = run_doctor(dir.path()).unwrap();
         assert!(report.db_exists);
         assert!(report.nodes >= 1);
-        assert!(report.healthy || report.findings.iter().all(|f| f.severity != DoctorSeverity::Error));
+        assert!(
+            report.healthy
+                || report
+                    .findings
+                    .iter()
+                    .all(|f| f.severity != DoctorSeverity::Error)
+        );
     }
 
     #[test]
@@ -865,7 +874,11 @@ mod tests {
         let mut brain = Brain::create(dir.path()).unwrap();
         brain.sync().unwrap();
         let report = run_doctor(dir.path()).unwrap();
-        assert!(report.orphan_notes >= 1, "orphan_notes={}", report.orphan_notes);
+        assert!(
+            report.orphan_notes >= 1,
+            "orphan_notes={}",
+            report.orphan_notes
+        );
         assert!(report.findings.iter().any(|f| f.code == "orphan_notes"));
 
         let detailed = run_doctor_with(

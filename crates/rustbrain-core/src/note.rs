@@ -353,10 +353,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(created
-            .rel_path
-            .to_string_lossy()
-            .starts_with("docs/analysis/"));
+        let rel = created.rel_path.to_string_lossy().replace('\\', "/");
+        assert!(rel.starts_with("docs/analysis/"), "rel={rel}");
         let text = std::fs::read_to_string(&created.path).unwrap();
         assert!(text.contains("node_type: analysis"));
         assert!(text.contains("p50 improved"));
@@ -404,10 +402,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(created
-            .rel_path
-            .to_string_lossy()
-            .starts_with("docs/plans/"));
+        let rel = created.rel_path.to_string_lossy().replace('\\', "/");
+        assert!(rel.starts_with("docs/plans/"), "rel={rel}");
         let text = std::fs::read_to_string(&created.path).unwrap();
         assert!(text.contains("node_type: plan"));
         assert!(text.contains("status: backlog"));

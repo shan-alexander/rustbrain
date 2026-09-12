@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.23] - 2026-09-12
+
+### Changed — thin `AGENTS.md`, install `SKILL.md` on bootstrap
+
+- Builtin root **`AGENTS.md`** is a short mandate (use `context` / `query` / `sync`), not the CLI cookbook. Cookbook lives in **`SKILL.md`**.
+- Custom `AGENTS.md` is **never overwritten** (including `--force`). Bootstrap **appends** an idempotent `<!-- rustbrain-agents-section -->` block instead.
+- Rustbrain-owned `AGENTS.md` (header `<!-- rustbrain-agents-md:`) is **refreshed** to the thin template so 0.3.22 fat cookbooks migrate.
+- Bootstrap installs the rustbrain skill into every existing harness dir:
+  `.grok/` `.claude/` `.cursor/` `.agents/` `.codex/` `.gemini/` `.ai/`
+  at `.<harness>/skills/rustbrain/SKILL.md`. If none exist, writes repo-root `SKILL.md`.
+- Existing rustbrain skills (`name: rustbrain`) refresh; foreign `SKILL.md` at that path is skipped.
+- Flag: **`--no-skill-md`** on `setup` / `bootstrap`. Library: `BootstrapOptions.write_skill_md`, `default_skill_md_template()`.
+- `docs/AGENTS.md` policy unchanged (still the docs-local mandate).
+- Windows MSVC debug: link `/STACK:8MiB` (`.cargo/config.toml`) so the CLI `clap` parser does not hit the 1 MiB default (`STATUS_STACK_OVERFLOW`).
+
+See [ADR: Bootstrap SKILL.md and thin non-clobbering AGENTS.md](docs/adr/bootstrap-skill-md-and-thin-non-clobbering-agents-md.md).
+
 ## [0.3.22] - 2026-08-01
 
 ### Added — multi-brain UX (0.3.22 finish)

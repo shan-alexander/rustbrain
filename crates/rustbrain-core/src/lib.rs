@@ -39,9 +39,9 @@
 
 #![warn(missing_docs)]
 
+pub mod apply_links;
 #[cfg(feature = "ast")]
 pub mod ast;
-pub mod apply_links;
 pub mod autolink;
 pub mod bootstrap;
 pub mod brain;
@@ -59,12 +59,13 @@ pub mod indexer;
 pub mod mmap;
 pub mod mutator;
 pub mod note;
-pub mod plan_status;
-pub mod scopes;
 #[cfg(feature = "obsidian")]
 pub mod obsidian;
+pub mod plan_status;
 pub mod query;
 pub mod registry;
+pub mod scopes;
+mod skill_template;
 pub mod storage;
 pub mod symbols;
 pub mod types;
@@ -75,31 +76,35 @@ pub use apply_links::{
 };
 pub use autolink::{
     is_auto_relation, is_explicit_relation, list_orphan_notes, normalize_target_arg, path_stem,
-    run_auto_link, AutoLinkReport, AutoLinkSuggestion, OrphanNote, REL_AUTO_FILENAME,
-    REL_AUTO_TAG, WEIGHT_AUTO_FILENAME, WEIGHT_AUTO_TAG,
+    run_auto_link, AutoLinkReport, AutoLinkSuggestion, OrphanNote, REL_AUTO_FILENAME, REL_AUTO_TAG,
+    WEIGHT_AUTO_FILENAME, WEIGHT_AUTO_TAG,
 };
 pub use bootstrap::{
     bootstrap_noninteractive, bootstrap_workspace, default_agents_md_template,
+    has_rustbrain_agents_section, is_rustbrain_owned_agents_md, is_rustbrain_skill_md,
     resolve_agents_md_template, BootstrapAction, BootstrapMode, BootstrapOptions, BootstrapReport,
+    AGENT_HARNESS_DIRS,
 };
 pub use brain::{find_brain_dir, Brain};
 pub use context::ContextOptions;
 pub use crate_docs::{
     collect_crate_deps, crates_io_url, docs_rs_url, write_crate_docs_notes, CrateDep,
 };
+pub use doctor::{
+    run_doctor, run_doctor_with, DoctorFinding, DoctorOptions, DoctorReport, DoctorSeverity,
+};
+pub use error::{BrainError, Result};
+pub use exporter::{BrainExporter, BrainImporter, PortableBrainBundle, BUNDLE_VERSION};
 pub use fts::{is_generic_topic, prepare_search_query, tokenize_query, PreparedQuery};
+pub use graph::{
+    graph_stats, neighborhood, resolve_graph_target, GraphDirection, GraphHopEdge, GraphHub,
+    GraphNeighborhood, GraphNodeRef, GraphOptions, GraphStats,
+};
 pub use hubs::{
     changelog_latest_heading, changelog_version_aliases, detect_project_hub, is_hub_node_id,
     is_planning_intent, is_release_intent, ProjectHub, HUB_BACKLOG, HUB_CHANGELOG, HUB_README,
     HUB_ROADMAP,
 };
-pub use graph::{
-    graph_stats, neighborhood, resolve_graph_target, GraphDirection, GraphHopEdge, GraphHub,
-    GraphNeighborhood, GraphNodeRef, GraphOptions, GraphStats,
-};
-pub use doctor::{run_doctor, run_doctor_with, DoctorFinding, DoctorOptions, DoctorReport, DoctorSeverity};
-pub use error::{BrainError, Result};
-pub use exporter::{BrainExporter, BrainImporter, PortableBrainBundle, BUNDLE_VERSION};
 pub use ignore::{recommended_ignore_extras, write_rustbrainignore, IgnoreSet};
 pub use indexer::WorkspaceIndexer;
 pub use mmap::{CsrCompiler, CsrMmapGraph, MMAP_VERSION};
@@ -107,17 +112,18 @@ pub use note::{create_note, default_dir_for_type, slugify_title, NoteCreated, No
 pub use plan_status::{
     densify_plan, enrich_plan_index_fields, PlanStatus, PlanStatusDigest, PlanTask,
 };
-pub use scopes::{
-    absorb_all_to_main, absorb_scope, add_scope, attach_subbrain, count_nodes_by_scope, detect_path,
-    disable_multi, discover_cargo_members, enable_multi, ensure_manifest, format_scopes_text,
-    import_brain, load_manifest, reconcile_scopes, remove_scope_def, rewrite_wikilinks_for_import,
-    save_manifest, sanitize_scope_id, scope_for_cwd, suggest_scope_id, AbsorbAllReport, AbsorbReport,
-    BrainMode, CargoMember, DetectReport, ImportBrainOptions, ImportBrainReport, ReconcileReport,
-    ScopeDef, ScopeSource, WorkspaceManifest, IMPORT_DEFAULT_MAX_BYTES, IMPORT_DEFAULT_MAX_FILES,
-    MAIN_SCOPE,
-};
 pub use query::{PendingLink, QueryOptions, RankedHit, ScopeMainInclude};
 pub use registry::{GlobalRankedHit, GlobalRegistry};
+pub use scopes::{
+    absorb_all_to_main, absorb_scope, add_scope, attach_subbrain, count_nodes_by_scope,
+    detect_path, disable_multi, discover_cargo_members, enable_multi, ensure_manifest,
+    format_scopes_text, import_brain, load_manifest, reconcile_scopes, remove_scope_def,
+    rewrite_wikilinks_for_import, sanitize_scope_id, save_manifest, scope_for_cwd,
+    suggest_scope_id, AbsorbAllReport, AbsorbReport, BrainMode, CargoMember, DetectReport,
+    ImportBrainOptions, ImportBrainReport, ReconcileReport, ScopeDef, ScopeSource,
+    WorkspaceManifest, IMPORT_DEFAULT_MAX_BYTES, IMPORT_DEFAULT_MAX_FILES, MAIN_SCOPE,
+};
+pub use skill_template::default_skill_md_template;
 pub use storage::{Database, SCHEMA_VERSION};
 pub use symbols::{extract_symbol_refs, symbol_node_id, SymbolRef};
 pub use types::{

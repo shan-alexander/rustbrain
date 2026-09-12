@@ -15,6 +15,8 @@ Project title: **rustbrain**
 
 **A Rust-native second brain for software repositories** — Markdown knowledge graph + SQLite FTS5 + CSR mmap, for humans *and* AI coding agents.
 
+The gist: when building with an AI Agent, you often create markdown docs for plans, analyses, context, etc. It gets messy and disorganized, and disconnected from the code. Rustbrain solves this. Initialize rustbrain in a repo, create the docs/goals/ markdown files to detail the overarching goals of the project, and then ADRs (architectural decision records) as you make decisions about the codebase features to implement, creating a paper trail of decisions and WHY those decisions were made and the tradeoffs & alternatives considered, so that future AI Agent sessions are more likely to understand and not violate previous requirements. Rustbrain creates a formal structure for `docs/` and becomes useful Agentic tooling. When paired with an AGENTS.md or skill.md that instructs your Agent to use rustbrain, agentic engineering outcomes are enhanced and more aligned with your expectations. 
+
 [![crates.io](https://img.shields.io/crates/v/rustbrain.svg)](https://crates.io/crates/rustbrain)
 [![docs.rs](https://docs.rs/rustbrain-core/badge.svg)](https://docs.rs/rustbrain-core)
 [![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/rustbrain.svg)](https://github.com/shan-alexander/rustbrain)
@@ -70,16 +72,29 @@ Full published CLI guide (commands, sequences, flags): **[crates.io/crates/rustb
 | `init` | Create `.brain/db.sqlite` only |
 | `bootstrap` | Docs tree, AGENTS, ignore, README/crate harvest, module map |
 | `sync` | Index Markdown / Canvas / Rust; bake `graph.mmap` |
-| `doctor` | Health (`--strict`, `--json`, `--orphans`) |
-| `note new` | Typed scaffold (`--type` + `--title`; edit file; then sync) |
-| `query` | Ranked FTS (`--scores`, `--type`, `--with-symbols`) |
-| `context` | Agent pack under token budget (`-m`, `-F markdown\|xml`) |
+| `doctor` | Health (`--strict`, `--json`, `--orphans`; multi-brain scope checks) |
+| `note new` | Typed scaffold (`--type` + `--title`; optional `--scope`) |
+| `query` | Ranked FTS (`--scores`, `--type`, `--with-symbols`, `--scope`) |
+| `context` | Agent pack (`-m`, `-F markdown\|xml`, `--scope`) |
 | `graph` | Neighborhood tree / workspace stats |
+| `scopes` | MainBrain / SubBrain: **`list` (ids)**, enable, add, attach, import, absorb, reconcile |
 | `links` | Pending; `--auto`; `--apply` (+ optional `--discover`) |
 | `watch` | Debounced live re-index |
-| `export` / `import` | Portable `.brainbundle` |
+| `export` / `import` | Portable `.brainbundle` (`export --scope ID` = SubBrain slice) |
 
 Most commands accept `-w /path`. `query` / `context` / `doctor` / `graph` walk parents for `.brain/` (git-style).
+
+### Discover SubBrain ids (before import / scoped query)
+
+```bash
+rustbrain scopes list                 # ids + roots + node counts (this workspace)
+rustbrain scopes list --json          # tools / agents
+rustbrain scopes list -w /other/path  # inspect another tree
+rustbrain scopes attach project-a --root project-a
+rustbrain scopes import --from ./project-b --as project-b --mount
+```
+
+Full command book: **[docs/CLI.md](docs/CLI.md)** · generated **AGENTS.md** after `setup` has agent-oriented tables.
 
 ---
 

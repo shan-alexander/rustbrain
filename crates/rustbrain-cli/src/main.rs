@@ -17,7 +17,7 @@ use rustbrain_core::{
     format_scopes_text, import_brain, load_manifest, normalize_target_arg, reconcile_scopes,
     remove_scope_def, run_doctor, run_doctor_with, scope_for_cwd, ApplyOptions, ApplyStyle,
     BootstrapMode, BootstrapOptions, Brain, DoctorOptions, GlobalRegistry, GraphDirection,
-    GraphOptions, ImportBrainOptions, NoteNewOptions, NodeType, QueryOptions, ScopeMainInclude,
+    GraphOptions, ImportBrainOptions, NodeType, NoteNewOptions, QueryOptions, ScopeMainInclude,
     ScopeSource, MAIN_SCOPE,
 };
 use std::path::PathBuf;
@@ -90,6 +90,9 @@ enum Commands {
         /// Do not write root AGENTS.md during bootstrap
         #[arg(long, default_value_t = false)]
         no_agents_md: bool,
+        /// Do not install SKILL.md into agent harnesses (or repo root)
+        #[arg(long, default_value_t = false)]
+        no_skill_md: bool,
         /// Skip harvesting Cargo.toml deps → docs.rs notes
         #[arg(long, default_value_t = false)]
         no_crate_docs: bool,
@@ -129,6 +132,9 @@ enum Commands {
         /// Do not write root AGENTS.md
         #[arg(long, default_value_t = false)]
         no_agents_md: bool,
+        /// Do not install SKILL.md into agent harnesses (or repo root)
+        #[arg(long, default_value_t = false)]
+        no_skill_md: bool,
         /// Skip harvesting Cargo.toml deps → docs.rs notes
         #[arg(long, default_value_t = false)]
         no_crate_docs: bool,
@@ -561,21 +567,15 @@ fn apply_scope_cli(
     with_main: bool,
 ) {
     let resolved = if let Some(s) = explicit {
-        let m = load_manifest(brain_ws).unwrap_or_else(|_| {
-            rustbrain_core::WorkspaceManifest::single(brain_ws)
-        });
+        let m = load_manifest(brain_ws)
+            .unwrap_or_else(|_| rustbrain_core::WorkspaceManifest::single(brain_ws));
         *opts_main_scope = m.main_id.clone();
-        Some(
-            m.find_scope(&s)
-                .map(|sc| sc.id.clone())
-                .unwrap_or(s),
-        )
+        Some(m.find_scope(&s).map(|sc| sc.id.clone()).unwrap_or(s))
     } else if !no_auto {
         let cwd = std::env::current_dir().unwrap_or_else(|_| cli_ws.to_path_buf());
         if let Some(s) = scope_for_cwd(brain_ws, &cwd) {
-            let m = load_manifest(brain_ws).unwrap_or_else(|_| {
-                rustbrain_core::WorkspaceManifest::single(brain_ws)
-            });
+            let m = load_manifest(brain_ws)
+                .unwrap_or_else(|_| rustbrain_core::WorkspaceManifest::single(brain_ws));
             *opts_main_scope = m.main_id;
             Some(s)
         } else {
@@ -631,6 +631,7 @@ fn run() -> Result<ExitCode> {
             no_doctor,
             no_bootstrap,
             no_agents_md,
+            no_skill_md,
             no_crate_docs,
             multi_cargo,
             agents_template,
@@ -660,6 +661,7 @@ fn run() -> Result<ExitCode> {
                     scaffold_docs: true,
                     write_agents_md: Some(!no_agents_md),
                     agents_template,
+                    write_skill_md: Some(!no_skill_md),
                 };
                 let report = bootstrap_workspace(&workspace, opts)?;
                 for a in &report.actions {
@@ -715,6 +717,7 @@ fn run() -> Result<ExitCode> {
             import_gitignore,
             no_import_gitignore,
             no_agents_md,
+            no_skill_md,
             no_crate_docs,
             agents_template,
         } => {
@@ -740,11 +743,24 @@ fn run() -> Result<ExitCode> {
             } else {
                 None // interactive may ask
             };
+            let write_skill = if no_skill_md {
+                Some(false)
+            } else if yes {
+                Some(true)
+            } else {
+                None
+            };
             let opts = BootstrapOptions {
                 mode,
                 write,
                 force,
-                setup_ignore: if no_ignore { Some(false) } else if yes { Some(true) } else { None },
+                setup_ignore: if no_ignore {
+                    Some(false)
+                } else if yes {
+                    Some(true)
+                } else {
+                    None
+                },
                 import_gitignore: import,
                 ignore_extras: true,
                 harvest_readme: true,
@@ -753,13 +769,17 @@ fn run() -> Result<ExitCode> {
                 scaffold_docs: true,
                 write_agents_md: write_agents,
                 agents_template,
+                write_skill_md: write_skill,
             };
             let report = bootstrap_workspace(&workspace, opts)?;
             for a in &report.actions {
                 println!("[{}] {} — {}", a.action, a.path, a.detail);
             }
             if report.wrote {
-                println!("\nbootstrap wrote files under {}", report.workspace.display());
+                println!(
+                    "\nbootstrap wrote files under {}",
+                    report.workspace.display()
+                );
                 println!("next: rustbrain sync && rustbrain doctor");
             } else {
                 println!("\ndry-run complete (no files written). pass --write or --yes --write");
@@ -954,7 +974,9 @@ fn run() -> Result<ExitCode> {
                     }
                     println!("tip: soft links are `auto_*` edges (low weight). Explicit WikiLinks stay preferred.");
                     println!("     re-check orphans: `rustbrain doctor --orphans`");
-                    println!("     normalize pending WikiLinks: `rustbrain links --apply --dry-run`");
+                    println!(
+                        "     normalize pending WikiLinks: `rustbrain links --apply --dry-run`"
+                    );
                 }
                 return Ok(ExitCode::SUCCESS);
             }
@@ -1110,7 +1132,9 @@ fn run() -> Result<ExitCode> {
             if results.is_empty() {
                 println!("no nodes found matching '{query}'");
                 if !include_symbols {
-                    println!("hint: try `rustbrain query \"{query}\" --with-symbols` or broader terms");
+                    println!(
+                        "hint: try `rustbrain query \"{query}\" --with-symbols` or broader terms"
+                    );
                 } else {
                     println!("hint: run `rustbrain sync` or check `rustbrain doctor`");
                 }
@@ -1192,9 +1216,7 @@ fn run() -> Result<ExitCode> {
             let target = target.expect("checked above");
 
             let dir = GraphDirection::parse(&direction).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "invalid --direction '{direction}'. use: both, out, or in"
-                )
+                anyhow::anyhow!("invalid --direction '{direction}'. use: both, out, or in")
             })?;
             let mut opts = GraphOptions {
                 hops: hops.max(1),
@@ -1247,13 +1269,11 @@ fn run() -> Result<ExitCode> {
             no_scope_auto,
             workspace,
         } => {
-            let topic = for_prompt
-                .or(prompt)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "missing prompt: pass a positional topic or `-p \"…\"` / `--for-prompt`"
-                    )
-                })?;
+            let topic = for_prompt.or(prompt).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "missing prompt: pass a positional topic or `-p \"…\"` / `--for-prompt`"
+                )
+            })?;
             let brain = Brain::open(&workspace).with_context(|| {
                 format!(
                     "no brain found at {} or parents (looking for .brain/db.sqlite). run `rustbrain setup --yes`",
@@ -1327,10 +1347,7 @@ fn run() -> Result<ExitCode> {
                 } else {
                     enable_multi(&workspace, false)?
                 };
-                println!(
-                    "multi-brain enabled ({} SubBrain(s))",
-                    m.scopes.len()
-                );
+                println!("multi-brain enabled ({} SubBrain(s))", m.scopes.len());
                 for sc in &m.scopes {
                     println!("  {} → {}", sc.id, sc.roots.join(", "));
                 }
@@ -1366,7 +1383,9 @@ fn run() -> Result<ExitCode> {
                         m.mode.as_str(),
                         m.scopes.len()
                     );
-                    println!("tip: use --absorb-all to reassign all nodes to main and clear SubBrains");
+                    println!(
+                        "tip: use --absorb-all to reassign all nodes to main and clear SubBrains"
+                    );
                 }
                 Ok(ExitCode::SUCCESS)
             }
@@ -1378,13 +1397,7 @@ fn run() -> Result<ExitCode> {
                 sync,
                 no_sync,
             } => {
-                let m = add_scope(
-                    &workspace,
-                    &id,
-                    &roots,
-                    &aliases,
-                    ScopeSource::Manual,
-                )?;
+                let m = add_scope(&workspace, &id, &roots, &aliases, ScopeSource::Manual)?;
                 println!("SubBrain {:?} roots={:?}", id, roots);
                 println!("mode: {}", m.mode.as_str());
                 if sync && !no_sync {

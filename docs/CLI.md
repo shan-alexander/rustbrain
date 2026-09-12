@@ -4,7 +4,7 @@ Package: **`rustbrain`** on crates.io · binary: `rustbrain`
 
 ```bash
 cargo install rustbrain --locked
-# or pin: cargo install rustbrain --version 0.3.22 --locked
+# or pin: cargo install rustbrain --version 0.3.23 --locked
 # ensure: export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
@@ -83,9 +83,9 @@ setup ──► (or: init ──► bootstrap ──► sync ──► doctor)
 
 | Stage | Command | Notes |
 |-------|---------|--------|
-| One-shot | `setup --yes` | init + bootstrap + sync + doctor (+ `AGENTS.md`) |
+| One-shot | `setup --yes` | init + bootstrap + sync + doctor (+ thin `AGENTS.md` + `SKILL.md`) |
 | Empty store | `init` | Creates `.brain/db.sqlite` only |
-| Mature repo seed | `bootstrap` | Docs tree + ignore + README/AST + **AGENTS.md** |
+| Mature repo seed | `bootstrap` | Docs tree + ignore + README/AST + thin **AGENTS.md** + **SKILL.md** |
 | Compile notes → graph | `sync` | FTS + edges + `graph.mmap` (includes root `CHANGELOG.md` → hub `changelog`) |
 | Inspect structure | `graph` | Neighborhood tree / stats (ASCII or JSON) |
 | Health | `doctor` | Pending links, ratios, exit codes |
@@ -100,14 +100,15 @@ rustbrain setup --yes --force          # overwrite generated bootstrap files
 rustbrain setup --yes --no-doctor
 rustbrain setup --yes --no-bootstrap   # init + sync only
 rustbrain setup --yes --no-agents-md   # skip AGENTS.md
+rustbrain setup --yes --no-skill-md    # skip SKILL.md install
 rustbrain setup --yes --agents-template ./AGENTS.template.md
 ```
 
 Always non-interactive. Preferred entry point for agents and CI.
 
 **Writes by default:** docs scaffold, `.rustbrainignore`, README harvest, module map,
-**Cargo.toml → docs.rs notes** under `docs/references/`, root **`AGENTS.md`** + `docs/AGENTS.md`,
-then full sync + doctor.
+**Cargo.toml → docs.rs notes** under `docs/references/`, thin root **`AGENTS.md`** + `docs/AGENTS.md`,
+**`SKILL.md`** into detected harnesses (or repo root), then full sync + doctor.
 
 ```bash
 rustbrain setup --yes --no-crate-docs   # skip docs.rs harvest
@@ -153,11 +154,12 @@ rustbrain bootstrap --dry-run
 # Humans: interactive prompts (TTY)
 rustbrain bootstrap --write
 
-# Overwrite generated files / ignore / AGENTS.md
+# Overwrite generated files / ignore (custom AGENTS.md is never overwritten)
 rustbrain bootstrap --yes --write --force
 
-# Skip or customize agent cookbook
+# Skip or customize agent mandate / skill
 rustbrain bootstrap --yes --write --no-agents-md
+rustbrain bootstrap --yes --write --no-skill-md
 rustbrain bootstrap --yes --write --agents-template ./my-agents.md
 ```
 
@@ -168,12 +170,13 @@ rustbrain bootstrap --yes --write --agents-template ./my-agents.md
 | `--write` | Apply changes to disk |
 | `--dry-run` | Plan only (implies no write) |
 | `-y` / `--yes` | Non-interactive defaults (for agents) |
-| `--force` | Overwrite `.rustbrainignore`, `AGENTS.md`, and regenerate `generated: true` files |
+| `--force` | Overwrite `.rustbrainignore` and regenerate `generated: true` files (custom `AGENTS.md` is never overwritten) |
 | `--no-ignore` | Skip `.rustbrainignore` setup |
 | `--import-gitignore` | Force import root `.gitignore` into ignore file |
 | `--no-import-gitignore` | Never import `.gitignore` |
-| `--no-agents-md` | Do not write root `AGENTS.md` |
-| `--agents-template PATH` | Use this file as `AGENTS.md` content |
+| `--no-agents-md` | Do not write/append root `AGENTS.md` |
+| `--no-skill-md` | Do not install `SKILL.md` into harnesses or repo root |
+| `--agents-template PATH` | Use this file as `AGENTS.md` content (new or rustbrain-owned files only) |
 
 ### What it writes
 
@@ -185,7 +188,8 @@ rustbrain bootstrap --yes --write --agents-template ./my-agents.md
 | `docs/BOOTSTRAP_CHECKLIST.md` | Promote drafts → real knowledge |
 | `docs/goals/from-readme.md` | Harvested from root `README.md` (`generated: true`) |
 | `docs/implementation/module-map.generated.md` | AST symbol list with `symbol:…` refs (`generated: true`) |
-| **`AGENTS.md`** | Agent cookbook for this repo (customizable; see below) |
+| **`AGENTS.md`** | Short rustbrain mandate (custom files get a section appended; see below) |
+| **`SKILL.md`** | Agent loop + CLI cookbook — `.<harness>/skills/rustbrain/SKILL.md` or repo root |
 | `.rustbrainignore` | Extra index skips (optional import of `.gitignore`) |
 | `.gitignore` | Appends `.brain/` when missing |
 | `.brain/db.sqlite` | Created if missing |
@@ -209,8 +213,13 @@ rustbrain setup --yes
 ```
 
 - **Skip:** `--no-agents-md` on `bootstrap` or `setup`.
-- **Overwrite existing:** `--force` (by default an existing `AGENTS.md` is left alone).
-- **Edit freely** after write; the built-in header documents how to regenerate.
+- **Rustbrain-owned** (header `<!-- rustbrain-agents-md:`): refreshed to the resolved template (thin builtin by default).
+- **Custom** (no rustbrain header): a short rustbrain **section is appended** (idempotent). Never overwritten, including `--force`.
+- **`--agents-template`** applies to **new or rustbrain-owned** files only.
+
+### `SKILL.md` install
+
+If `.grok/`, `.claude/`, `.cursor/`, `.agents/`, `.codex/`, `.gemini/`, or `.ai/` exists, bootstrap writes `.<harness>/skills/rustbrain/SKILL.md` for **each**. If none exist, writes repo-root `SKILL.md`. Existing rustbrain skills (`name: rustbrain`) refresh; any other file at that path is skipped. Opt out: `--no-skill-md`.
 
 ### Interactive prompts (TTY, without `--yes`)
 
@@ -221,9 +230,10 @@ rustbrain setup --yes
 5. Harvest README?
 6. Generate AST module map?
 7. Scaffold docs/ tree + templates?
-8. Write root `AGENTS.md`?
+8. Write/update root `AGENTS.md` (mandate; custom files get a section)?
 9. Custom `AGENTS.md` template path? (empty = discovery / built-in)
-10. Write files to disk?
+10. Install rustbrain `SKILL.md` into detected harnesses (or repo root)?
+11. Write files to disk?
 
 ---
 
@@ -262,7 +272,7 @@ Walks parents for `.brain`. Summary line includes `orphans=N` when **N > 0**
 | `thin_from_readme` / `no_from_readme` | Harvest quality / presence |
 | `scaffold_only` | Only bootstrap stubs — write real notes for better context |
 | `knowledge_thin` | Few substantial notes vs many symbols |
-| `no_agents_md` | No root agent cookbook |
+| `no_agents_md` | No root rustbrain mandate (`AGENTS.md`) |
 
 `status: OK` still means the DB/index is usable; infos guide enrichment, they do not invent docs.
 
@@ -509,6 +519,8 @@ See `rustbrain <cmd> --help` for full flags.
 
 ## Agent tip
 
-After `setup --yes`, point coding agents at the generated **`AGENTS.md`** in the project
-root — it encodes the rustbrain loop for that repo. Customize the template org-wide via
-`AGENTS.template.md` so every new bootstrap is on-brand.
+After `setup --yes`, point coding agents at **`SKILL.md`** (or
+`.<harness>/skills/rustbrain/SKILL.md`) for the loop + cookbook, and at root
+**`AGENTS.md`** for the short mandate. Customize new/owned `AGENTS.md` via
+`AGENTS.template.md`. Custom host `AGENTS.md` files get a rustbrain section
+appended instead of being replaced.

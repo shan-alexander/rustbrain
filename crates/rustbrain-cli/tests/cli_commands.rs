@@ -36,6 +36,18 @@ fn bootstrap_doctor_note_query_filters() {
     assert!(root.join("AGENTS.md").is_file());
     let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
     assert!(agents.contains("rustbrain"));
+    assert!(
+        agents.contains("<!-- rustbrain-agents-md:"),
+        "fresh AGENTS.md should be the thin rustbrain mandate"
+    );
+    assert!(
+        !agents.contains("## First time"),
+        "AGENTS.md must not contain the old CLI cookbook"
+    );
+    assert!(
+        root.join("SKILL.md").is_file(),
+        "no harness dir → repo-root SKILL.md"
+    );
 
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)
@@ -82,7 +94,9 @@ fn bootstrap_doctor_note_query_filters() {
         .args(["context", "why local tools", "-F", "markdown", "-w", "."])
         .assert()
         .success()
-        .stdout(predicate::str::contains("packed:").or(predicate::str::contains("rustbrain context")));
+        .stdout(
+            predicate::str::contains("packed:").or(predicate::str::contains("rustbrain context")),
+        );
 
     cargo_bin_cmd!("rustbrain")
         .current_dir(root)

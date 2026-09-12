@@ -234,7 +234,7 @@ fn main() -> Result<()> {
 | **Context** | `context_for_prompt` · `context_for_prompt_with` + `ContextOptions` · `ContextBundle::{to_markdown, to_xml}` |
 | **Graph** | `graph_neighborhood` · `graph_stats` + `GraphOptions` / `GraphDirection` |
 | **Notes** | `create_note` / `Brain::note_new` · `NoteNewOptions` · `NodeType` |
-| **Bootstrap** | `bootstrap_workspace` · `bootstrap_noninteractive` · `BootstrapOptions` · agents templates |
+| **Bootstrap** | `bootstrap_workspace` · `bootstrap_noninteractive` · `BootstrapOptions` · agents / skill templates |
 | **Crate docs** | `collect_crate_deps` · `write_crate_docs_notes` · `docs_rs_url` |
 | **Health** | `run_doctor` / `run_doctor_with` · `DoctorReport` |
 | **Links** | `list_orphan_notes` · `run_auto_link` · `apply_links` · `ApplyOptions` |
@@ -327,6 +327,7 @@ let report = bootstrap_workspace(
         scaffold_docs: true,
         write_agents_md: Some(true),
         agents_template: None,
+        write_skill_md: Some(true),
     },
 )?;
 for a in report.actions {
@@ -339,7 +340,8 @@ for a in report.actions {
 | Path | Role |
 |------|------|
 | `docs/goals/`, `docs/adr/`, `docs/analysis/`, `docs/plans/`, … | Note trees |
-| `AGENTS.md`, `docs/AGENTS.md` | Agent cookbooks |
+| `AGENTS.md`, `docs/AGENTS.md` | Short rustbrain mandate / docs-local protocol |
+| `SKILL.md` or `.<harness>/skills/rustbrain/SKILL.md` | Agent loop + CLI cookbook |
 | `docs/goals/from-readme.md` | Algorithmic README harvest |
 | `docs/references/crates/*.md` | docs.rs URLs per crates.io dep |
 | `docs/implementation/module-map.generated.md` | AST map (`ast` feature) |

@@ -2,6 +2,10 @@
 
 **A Rust-native second brain for software repositories** — Markdown knowledge graph + SQLite FTS5 + CSR mmap, for humans *and* AI coding agents.
 
+The gist: when building with an AI Agent, you often create markdown docs for plans, analyses, context, etc. It gets messy and disorganized, and disconnected from the code. Rustbrain solves this by giving the Agent a CLI tool. Step one is to initialize rustbrain in a repo, create the docs/goals/ markdown files (to detail the overarching goals of the project, which serve as contextual guardrails for AI Agents) and then ADRs (architectural decision records) as you make decisions about the codebase features to implement. The ADRs create a paper trail of feature decisions and WHY those decisions were made and the tradeoffs & alternatives considered, so that future AI Agent sessions are more likely to understand and not violate previous requirements. When paired with an AGENTS.md or skill.md that instructs your Agent to use rustbrain (which rustbrain will optionally create for you, using `rustbrain bootstrap`), agentic engineering outcomes are enhanced and more closely aligned with human-author expectations. 
+
+I've been using `rustbrain` on all my recent projects and it works greater than I originally expected. At one point I implemented features to create an integration of rustbrain to Obsidian, but Obsidian integration is not my primary aim in `v0.3`. Just battletesting and polishing for now. 
+
 [![crates.io](https://img.shields.io/crates/v/rustbrain.svg)](https://crates.io/crates/rustbrain)
 [![docs.rs](https://docs.rs/rustbrain-core/badge.svg)](https://docs.rs/rustbrain-core)
 [![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/rustbrain.svg)](https://github.com/shan-alexander/rustbrain)
@@ -67,7 +71,7 @@ Markdown on disk is the **source of truth**. `.brain/` is a **rebuildable cache*
 
 | Benefit | What you get |
 |---|---|
-| **Agent-ready** | `setup --yes` writes `AGENTS.md`; agents use `context` / `query` every turn |
+| **Agent-ready** | `setup --yes` writes a thin `AGENTS.md` + `SKILL.md` (harness or root); agents use `context` / `query` every turn |
 | **Truth in Git** | Notes are plain Markdown; `.brain/` is disposable |
 | **Code ↔ docs** | `symbol:Foo` from notes; `[[docs/adr/…]]` in rustdoc → bidirectional edges |
 | **Graph-aware packs** | `context` = ranked seeds + hops under a token budget (Markdown or XML) |
@@ -93,7 +97,7 @@ Markdown on disk is the **source of truth**. `.brain/` is a **rebuildable cache*
 
 ```bash
 cargo install rustbrain --locked
-# pin: cargo install rustbrain --version 0.3.22 --locked
+# pin: cargo install rustbrain --version 0.3.23 --locked
 export PATH="$HOME/.cargo/bin:$PATH"
 rustbrain --version
 ```
@@ -121,12 +125,13 @@ cd your-project
 rustbrain setup --yes
 ```
 
-This creates `.brain/`, scaffolds `docs/`, writes **`AGENTS.md`** + **`docs/AGENTS.md`**, harvests README + Cargo.toml → docs.rs notes, runs **sync** + **doctor**.
+This creates `.brain/`, scaffolds `docs/`, writes a thin **`AGENTS.md`** + **`docs/AGENTS.md`**, installs **`SKILL.md`** into detected agent harnesses (or repo root if none), harvests README + Cargo.toml → docs.rs notes, runs **sync** + **doctor**.
 
 ```bash
 # optional knobs
 rustbrain setup --yes --no-crate-docs
 rustbrain setup --yes --no-agents-md
+rustbrain setup --yes --no-skill-md
 rustbrain setup --yes --force
 rustbrain setup --yes --agents-template ./AGENTS.template.md
 ```
@@ -238,7 +243,7 @@ rustbrain scopes attach project-a --root project-a
 rustbrain scopes import --from ./project-b --as project-b --mount
 ```
 
-Full command book: **[docs/CLI.md](docs/CLI.md)** · generated **AGENTS.md** after `setup` has agent-oriented tables.
+Full command book: **[docs/CLI.md](docs/CLI.md)** · **SKILL.md** after `setup` (or `.<harness>/skills/rustbrain/SKILL.md`). Root **AGENTS.md** is a short mandate.
 
 ---
 
@@ -350,7 +355,8 @@ More: [crates.io/crates/rustbrain-core](https://crates.io/crates/rustbrain-core)
 | `.brain/db.sqlite` | Derived SQLite + FTS5 |
 | `.brain/graph.mmap` | CSR adjacency cache |
 | `.brain/link_lexicon.json` | Optional AC lexicon |
-| `AGENTS.md`, `docs/AGENTS.md` | Agent cookbooks |
+| `AGENTS.md`, `docs/AGENTS.md` | Short rustbrain mandate / docs-local protocol |
+| `SKILL.md` or `.<harness>/skills/rustbrain/SKILL.md` | Agent loop + CLI cookbook |
 
 Formats: [docs/SCHEMA.md](docs/SCHEMA.md), [docs/MMAP_FORMAT.md](docs/MMAP_FORMAT.md).  
 Ignore dialect + CLI details: [docs/CLI.md](docs/CLI.md).
